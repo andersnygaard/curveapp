@@ -1,0 +1,20 @@
+# Backlog issues on the Curve board, with what backlog.mjs needs to tell which ones are new or
+# changed since they were last read. Comments and history come newest first.
+{
+  issues(
+    first: 100
+    filter: {
+      project: { slugId: { eq: "5999feb19281" } }
+      state: { name: { eq: "Backlog" } }
+    }
+  ) {
+    nodes {
+      identifier
+      number
+      title
+      labels { nodes { name } }
+      comments(first: 1) { nodes { body createdAt } }
+      history(first: 20) { nodes { createdAt updatedDescription } }
+    }
+  }
+}

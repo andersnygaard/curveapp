@@ -1,0 +1,14 @@
+node_modules/
+dist/
+coverage/
+storybook-static/
+test-results/
+playwright-report/
+*.log
+*.local
+.DS_Store
+
+# Claude Code: personal settings and runtime state. Project skills are shared.
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
+.claude/worktrees/

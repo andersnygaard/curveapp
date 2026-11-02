@@ -1,0 +1,392 @@
+@import '@fontsource-variable/schibsted-grotesk';
+
+:root {
+  --paper: #edf3f6;
+  --ink: #12263a;
+  --muted: #566878;
+  --line: #c3d2db;
+  --curve: #0b7a75;
+  --gutter: clamp(1rem, 4vw, 3rem);
+
+  background: var(--paper);
+  color: var(--ink);
+  font-family: 'Schibsted Grotesk Variable', system-ui, sans-serif;
+  line-height: 1.5;
+}
+
+body {
+  margin: 0;
+}
+
+#root {
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+}
+
+:focus-visible {
+  outline: 2px solid var(--curve);
+  outline-offset: 2px;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.25rem var(--gutter) 0.75rem;
+}
+
+.wordmark {
+  margin: 0;
+  font-size: 1.75rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1;
+}
+
+.flags {
+  display: flex;
+  gap: 0.375rem;
+}
+
+.flag {
+  padding: 2px;
+  border: 2px solid transparent;
+  border-radius: 4px;
+  background: none;
+  opacity: 0.75;
+}
+
+.flag:hover,
+.flag[aria-pressed='true'] {
+  opacity: 1;
+}
+
+.flag[aria-pressed='true'] {
+  border-color: var(--ink);
+}
+
+.flag svg {
+  display: block;
+  width: 2rem;
+  height: 1.375rem;
+}
+
+.tablist {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0 calc(var(--gutter) - 0.75rem);
+  border-bottom: 1px solid var(--line);
+}
+
+.tab {
+  position: relative;
+  padding: 0.75rem 0.75rem 1.125rem;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-size: 1.0625rem;
+  font-weight: 500;
+}
+
+.tab:hover,
+.tab[aria-selected='true'] {
+  color: var(--ink);
+}
+
+.tab-curve {
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  width: 100%;
+  height: 0.75rem;
+  overflow: visible;
+  transform-origin: bottom;
+  animation: rise 200ms ease-out;
+}
+
+.tab-curve path {
+  fill: none;
+  stroke: var(--curve);
+  stroke-width: 2.5;
+  vector-effect: non-scaling-stroke;
+}
+
+@keyframes rise {
+  from {
+    transform: scaleY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tab-curve {
+    animation: none;
+  }
+}
+
+.main {
+  flex: 1;
+}
+
+.panel {
+  padding: 2rem var(--gutter);
+  color: var(--muted);
+}
+
+.panel:focus-visible {
+  outline-offset: -2px;
+}
+
+.sim {
+  color: var(--ink);
+}
+
+.sim-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem 1.5rem;
+}
+
+.horizons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.horizon,
+.sim-pause,
+.input-add {
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: none;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.horizon:hover,
+.sim-pause:hover,
+.input-add:hover {
+  border-color: var(--ink);
+}
+
+.horizon[aria-pressed='true'] {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.sim-status {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.sim-legend {
+  margin: 0.75rem 0 0;
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+.chart {
+  margin-top: 1.5rem;
+}
+
+.chart-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.125rem 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.chart-name {
+  margin: 0;
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+
+.chart-expected {
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+.chart-note {
+  margin: 0 0 0.5rem;
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+.chart-canvas {
+  display: block;
+  width: 100%;
+  height: clamp(14rem, 32vh, 22rem);
+}
+
+.sim-empty {
+  margin: 0;
+}
+
+.input {
+  color: var(--ink);
+}
+
+.input .react-flow {
+  --xy-background-color-default: transparent;
+}
+
+.input .react-flow__edge-path {
+  stroke: var(--muted);
+  stroke-width: 1.5;
+}
+
+.input .react-flow__edge.selected .react-flow__edge-path {
+  stroke: var(--ink);
+  stroke-width: 2;
+}
+
+.input-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.input-help {
+  max-width: 70ch;
+  margin: 0.75rem 0;
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+.input-canvas {
+  height: clamp(26rem, calc(100dvh - 18rem), 60rem);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+
+.box {
+  --box-color: var(--muted);
+
+  display: grid;
+  gap: 0.375rem;
+  width: 18.5rem;
+  padding: 0.5rem 0.75rem 0.75rem;
+  border: 1px solid var(--line);
+  border-top: 3px solid var(--box-color);
+  border-radius: 4px;
+  background: #fff;
+  color: var(--ink);
+  font-size: 0.8125rem;
+}
+
+.box-income {
+  --box-color: var(--curve);
+}
+
+.box-account,
+.box-otp,
+.box-pension {
+  --box-color: var(--ink);
+}
+
+.box-note {
+  margin: 0;
+  color: var(--muted);
+}
+
+.box-pension {
+  border-top-style: dashed;
+}
+
+.react-flow__node.selected .box {
+  border-color: var(--ink);
+  border-top-color: var(--box-color);
+}
+
+.box-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.box-delete,
+.edge-delete {
+  width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--muted);
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.box-delete:hover,
+.edge-delete:hover {
+  color: var(--ink);
+}
+
+.edge-delete {
+  position: absolute;
+  border: 1px solid var(--ink);
+  border-radius: 50%;
+  background: #fff;
+  pointer-events: all;
+}
+
+.box-field {
+  display: grid;
+  grid-template-columns: 8.5rem minmax(0, 1fr);
+  gap: 0.5rem;
+  align-items: center;
+  color: var(--muted);
+}
+
+.box-field input,
+.box-field select {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 0.125rem 0.375rem;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+}
+
+.box-value {
+  padding: 0 0.375rem;
+  color: var(--ink);
+}
+
+.box .react-flow__handle {
+  width: 0.875rem;
+  height: 0.875rem;
+  border: 2px solid var(--box-color);
+  background: #fff;
+}
+
+.footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.875rem var(--gutter);
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.875rem;
+}
