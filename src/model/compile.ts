@@ -1,0 +1,98 @@
+// Turns what the user drew into what the engine runs. No rule about money or pensions lives here.
+import { orderRules, type Factor, type Model, type Rule, type Stock } from '../engine/engine';
+import { G, G_REGULATION_DATE, nextG } from '../engine/norway';
+import { stepFactor } from '../engine/rules';
+import { DAYS_PER_YEAR, Timeline } from '../engine/timeline';
+import { specOf } from './catalog';
+import { validDate } from './dates';
+import { queryOf } from './query';
+import type { CompileContext, Diagnostic } from './spec';
+import type { Box, SimulationInput } from './types';
+
+const MAX_SAMPLES = 400;
+
+function sampleDaysFor(totalDays: number): number[] {
+  const sampleEvery = Math.ceil(totalDays / MAX_SAMPLES);
+  const sampleDays: number[] = [];
+  for (let day = 0; day < totalDays; day += sampleEvery) sampleDays.push(day);
+  sampleDays.push(totalDays);
+  return sampleDays;
+}
+
+const startDateOf = (box: Box) => ('startDate' in box.data ? validDate(box.data.startDate) : null);
+
+export function hasStocks({ boxes }: SimulationInput): boolean {
+  return boxes.some((box) => startDateOf(box) !== null);
+}
+
+// The simulation starts when the first thing that holds value starts.
+export function startMsOf({ boxes }: SimulationInput): number {
+  return Math.min(...boxes.flatMap((box) => startDateOf(box) ?? []).map((date) => Date.parse(date)));
+}
+
+// How long the simulation must run to reach an age, or 0 without a birth year or if that age has passed.
+export function yearsToAge(input: SimulationInput, age: number): number {
+  const { birthYear } = queryOf(input).assumptions;
+  if (birthYear === null || !hasStocks(input)) return 0;
+  return Math.max(0, age - (new Date(startMsOf(input)).getUTCFullYear() - birthYear));
+}
+
+export function compile(input: SimulationInput, years: number): Model {
+  const query = queryOf(input);
+  const timeline = new Timeline(startMsOf(input), Math.round(years * DAYS_PER_YEAR));
+  const stocks: Stock[] = [];
+  const factors: Factor[] = [];
+  const rules: Rule[] = [];
+  const stockIndex = new Map<string, number>();
+  let random = false;
+
+  const context: CompileContext = {
+    ...query,
+    timeline,
+    everyDay: timeline.fires({ every: 'daily' }),
+    addRule: (rule) => {
+      rules.push(rule);
+    },
+    addStock(box, stock) {
+      stockIndex.set(box.id, stocks.length);
+      return stocks.push({ id: box.id, ...stock }) - 1;
+    },
+    addFactor(factor, isRandom) {
+      factors.push(factor);
+      random ||= isRandom;
+    },
+    stockOf: (box) => stockIndex.get(box.id)!,
+    markCanRunOut(stock) {
+      stocks[stock].canRunOut = true;
+    },
+    dayOfAge(age) {
+      const { birthYear } = query.assumptions;
+      return birthYear === null ? null : timeline.dayOf(`${birthYear + age}-01-01`);
+    },
+  };
+
+  if (input.boxes.some((box) => specOf(box).usesG?.(box, query))) {
+    const { value, growth, volatility } = query.assumptions.g;
+    // G before the start is unknown and is estimated from the expected growth.
+    context.addFactor({ id: G, value, previous: value / (1 + growth) }, volatility > 0);
+    rules.push(stepFactor(G, timeline.fires({ annually: G_REGULATION_DATE, from: 1 }), nextG(growth, volatility)));
+  }
+  for (const box of input.boxes) specOf(box).declare?.(box, context);
+  for (const box of input.boxes) specOf(box).build?.(box, context);
+
+  // Calculated balances go last, so they are not read as part of the savings.
+  const shown = stocks.flatMap((stock, index) => (stock.hidden ? [] : [index]));
+  const charted = [
+    ...shown.filter((index) => stocks[index].unit === 'money'),
+    ...shown.filter((index) => stocks[index].unit !== 'money'),
+  ];
+
+  return { timeline, stocks, factors, rules: orderRules(rules), sampleDays: sampleDaysFor(timeline.days), charted, random };
+}
+
+export function diagnose(input: SimulationInput): Diagnostic[] {
+  const query = queryOf(input);
+  return input.boxes.flatMap((box) =>
+    (specOf(box).check?.(box, query) ?? []).map((code): Diagnostic => ({ boxId: box.id, code })),
+  );
+}

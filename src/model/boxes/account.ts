@@ -1,0 +1,54 @@
+import { deflateDeposits } from '../../engine/rules';
+import { today, validDate } from '../dates';
+import type { BoxSpec, CompileContext } from '../spec';
+import { MANY } from '../spec';
+import type { AccountBox } from '../types';
+
+const DEFAULT_TAX_ON_GAIN = 37.84;
+const DEFAULT_INFLATION = 2.5;
+
+export type AccountData = {
+  name: string;
+  startAmount: number;
+  startDate: string;
+  currency: string;
+  accountType: 'regular' | 'ask';
+  taxRate: number;
+  inflation: number;
+};
+
+const taxRateOf = ({ data }: AccountBox) => Math.min(100, Math.max(0, data.taxRate)) / 100;
+const inflationOf = ({ data }: AccountBox) => Math.max(-50, data.inflation) / 100;
+
+export const accountSpec: BoxSpec<AccountBox> = {
+  defaults: (names) => ({
+    name: names.account,
+    startAmount: 100_000,
+    startDate: today(),
+    currency: 'NOK',
+    accountType: 'regular',
+    taxRate: DEFAULT_TAX_ON_GAIN,
+    inflation: DEFAULT_INFLATION,
+  }),
+  takes: {
+    money: { max: MANY, from: ['income', 'transfer', 'budget', 'otp', 'folketrygd', 'withdrawal'] },
+    influence: { max: MANY, from: ['return'] },
+  },
+  gives: { money: MANY },
+  holds: true,
+  declare(account, context: CompileContext) {
+    const { name, startAmount, startDate, currency, accountType } = account.data;
+    context.addStock(account, {
+      name,
+      unit: 'money',
+      currency,
+      opening: Math.max(0, startAmount),
+      openDay: context.timeline.dayOf(validDate(startDate)),
+      taxOnGain: accountType === 'ask' ? taxRateOf(account) : undefined,
+    });
+  },
+  build(account, context) {
+    if (account.data.accountType !== 'ask') return;
+    context.addRule(deflateDeposits(context.stockOf(account), inflationOf(account), context.everyDay));
+  },
+};
