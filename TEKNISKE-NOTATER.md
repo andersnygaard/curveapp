@@ -15,6 +15,8 @@
 - Inntekt er netto utbetalt. Pensjonsgrunnlag er et eget felt, siden OTP og Folketrygden regnes av brutto.
 - Avkastning er en egen boks. Kontoer på samme boks følger samme marked, og kontoer på hver sin boks følger hvert sitt.
 - G-boksen og boksen Deg selv er statiske og har ingen connector. G finnes så lenge noe leser den, og Deg selv står alltid på lerretet. Fødselsår og alder du slutter å jobbe ved ligger bare i local storage.
+- Planen står i et panel ved siden av tegneflaten og oppdateres mens du tegner. Den regnes i en egen Web Worker (`src/simulation/plan.worker.ts`) av `src/model/plan.ts`, som kjører ett pass uten tilfeldigheter og leser hva motoren faktisk flyttet. Den sier derfor det samme som simuleringen, og en ny bokstype kommer med av seg selv så lenge reglene bruker de samme merkelappene.
+- Planen viser en linje når noe starter, endrer seg med mer enn 10 % eller stopper. Beløp som følger G holder seg på én linje, og utbetalinger under 100 kr tas ikke med.
 
 ## Simulering
 

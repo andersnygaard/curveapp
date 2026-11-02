@@ -74,7 +74,7 @@ export const otpSpec: BoxSpec<OtpBox> = {
     basis: { max: MANY, from: ['income'] },
     influence: { max: MANY, from: ['return'] },
   },
-  gives: { money: 1 },
+  gives: { money: 1, basis: MANY },
   holds: true,
   usesG: (otp, query) => incomesOf(query.into(otp, 'basis')).some((income) => basisOf(income) > 0),
   declare(otp, context) {

@@ -14,7 +14,7 @@ export interface Layout {
 
 export interface SimulationFrame {
   summary: Summary;
-  // New passes to play, one series per charted stock. Later frames bring more until there are enough.
+  // New passes to play, one series per line in the summary. Later frames bring more until there are enough.
   passes: Float64Array[][];
 }
 
@@ -48,7 +48,7 @@ export function* simulate(model: Model, stages: number[] = PASS_STAGES): Generat
 
     // A pass and its opposite should not follow each other on screen.
     shuffle(fresh, random);
-    const passes = fresh.slice(0, Math.max(0, PLAYBACK_PASSES - played)).map((result) => result.series);
+    const passes = fresh.slice(0, Math.max(0, PLAYBACK_PASSES - played)).map((result) => [...result.overviews.map(({ total }) => total), ...result.series]);
     played += passes.length;
     yield { summary, passes };
   }

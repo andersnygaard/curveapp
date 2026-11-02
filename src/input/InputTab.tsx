@@ -10,19 +10,21 @@ import {
   type Connection,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
+import WireLegend from '../components/WireLegend';
 import { useTranslations } from '../i18n';
-import { ADDABLE_TYPES, type AddableType } from '../model/catalog';
+import { ADDABLE_TYPES, catalog, type AddableType } from '../model/catalog';
 import { diagnose } from '../model/compile';
 import { canConnect, connect } from '../model/connections';
 import { createBox, freeSpot, syncG } from '../model/graph';
 import { queryOf } from '../model/query';
 import type { Graph, PlacedBox, SimulationInput, Wire, WireKind } from '../model/types';
 import { CardContext, nodeTypes } from './BoxCards';
+import PlanPanel from './PlanPanel';
 import { edgeTypes, toFlowEdge } from './WireEdge';
 
 const BOX_WIDTH = 296;
 const FIT_VIEW = { maxZoom: 1, padding: 0.12 };
-const FIT_VIEW_AFTER_ADDING_MS = 60;
+const FIT_VIEW_DELAY_MS = 60;
 
 interface Props {
   graph: Graph;
@@ -31,33 +33,12 @@ interface Props {
   recovered: boolean;
 }
 
-function WireLegend() {
-  const t = useTranslations();
-  const kinds: [WireKind, string][] = [
-    ['money', t.wireMoney],
-    ['influence', t.wireInfluence],
-    ['basis', t.wireBasis],
-  ];
-  return (
-    <ul className="wire-legend">
-      {kinds.map(([kind, label]) => (
-        <li key={kind}>
-          <span className={`port-sample port-${kind}`} aria-hidden="true" />
-          <svg viewBox="0 0 32 8" aria-hidden="true">
-            <line className={`wire-sample wire-sample-${kind}`} x1="0" x2="32" y1="4" y2="4" />
-          </svg>
-          {label}
-        </li>
-      ))}
-    </ul>
-  );
-}
-
 function Canvas({ graph, setGraph, input, recovered }: Props) {
   const t = useTranslations();
   const { screenToFlowPosition, fitView } = useReactFlow();
   const canvas = useRef<HTMLDivElement>(null);
   const [connecting, setConnecting] = useState<string | null>(null);
+  const [showPlan, setShowPlan] = useState(true);
   const edges = useMemo(() => graph.wires.map(toFlowEdge), [graph.wires]);
   const money = useMemo(() => new Intl.NumberFormat(t.locale, { maximumFractionDigits: 0 }), [t.locale]);
   const cards = useMemo(
@@ -72,11 +53,27 @@ function Canvas({ graph, setGraph, input, recovered }: Props) {
     const box = createBox(type, freeSpot(wanted, graph.boxes), t.defaultNames);
     setGraph((current) => ({ ...current, boxes: syncG([...current.boxes, box], t.defaultNames, corner) }));
     // The free spot may be outside the view, and the card is only measured once it is on screen.
-    setTimeout(() => fitView({ ...FIT_VIEW, duration: 250 }), FIT_VIEW_AFTER_ADDING_MS);
+    fitSoon();
   }
 
-  function wireOf({ source, target, sourceHandle, targetHandle }: Connection | { source: string; target: string; sourceHandle?: string | null; targetHandle?: string | null }) {
-    return sourceHandle === targetHandle ? { source, target, kind: sourceHandle as WireKind } : null;
+  function fitSoon() {
+    setTimeout(() => fitView({ ...FIT_VIEW, duration: 250 }), FIT_VIEW_DELAY_MS);
+  }
+
+  function togglePlan() {
+    setShowPlan(!showPlan);
+    // The canvas gets wider or narrower, and the boxes should still all be in view.
+    fitSoon();
+  }
+
+  // The dot a wire lands on says what kind it is, so a wire from either dot on a salary can reach the square on a pension.
+  function wireOf({ source, target, targetHandle }: Connection | { source: string; target: string; targetHandle?: string | null }) {
+    return { source, target, kind: targetHandle as WireKind };
+  }
+
+  function kindsFrom(nodeId: string | null, handleId: string | null, handleType: string | null) {
+    const box = graph.boxes.find((candidate) => candidate.id === nodeId);
+    return handleType === 'source' && box ? Object.keys(catalog[box.type].gives ?? {}).join(' ') : handleId;
   }
 
   return (
@@ -88,49 +85,51 @@ function Canvas({ graph, setGraph, input, recovered }: Props) {
             {t.addBox[type]}
           </button>
         ))}
+        <button type="button" className="input-add input-plan-toggle" aria-pressed={showPlan} onClick={togglePlan}>
+          {t.plan}
+        </button>
       </div>
       <div className="input-guide">
         <p className="input-help">{t.inputHelp}</p>
         <WireLegend />
       </div>
-      <div ref={canvas} className="input-canvas" data-connecting={connecting ?? undefined}>
-        <CardContext.Provider value={cards}>
-          <ReactFlow
-            nodes={graph.boxes}
-            edges={edges}
-            nodeTypes={nodeTypes}
-            edgeTypes={edgeTypes}
-            onNodesChange={(changes) =>
-              setGraph((current) => ({
-                ...current,
-                boxes: syncG(applyNodeChanges(changes, current.boxes) as PlacedBox[], t.defaultNames),
-              }))
-            }
-            onEdgesChange={(changes) =>
-              setGraph((current) => ({
-                ...current,
-                wires: applyEdgeChanges(changes, current.wires.map(toFlowEdge)) as unknown as Wire[],
-              }))
-            }
-            onConnect={(connection) => {
-              const wire = wireOf(connection);
-              if (wire) setGraph((current) => ({ ...current, wires: connect(current.boxes, current.wires, wire) }));
-            }}
-            onConnectStart={(_, { handleId }) => setConnecting(handleId)}
-            onConnectEnd={() => setConnecting(null)}
-            isValidConnection={(connection) => {
-              const wire = wireOf(connection);
-              return wire !== null && canConnect(graph.boxes, wire);
-            }}
-            deleteKeyCode={['Backspace', 'Delete']}
-            minZoom={0.3}
-            fitView
-            fitViewOptions={FIT_VIEW}
-          >
-            <Background gap={24} color="var(--line)" />
-            <Controls showInteractive={false} />
-          </ReactFlow>
-        </CardContext.Provider>
+      <div className="input-workspace">
+        <div ref={canvas} className="input-canvas" data-connecting={connecting ?? undefined}>
+          <CardContext.Provider value={cards}>
+            <ReactFlow
+              nodes={graph.boxes}
+              edges={edges}
+              nodeTypes={nodeTypes}
+              edgeTypes={edgeTypes}
+              onNodesChange={(changes) =>
+                setGraph((current) => ({
+                  ...current,
+                  boxes: syncG(applyNodeChanges(changes, current.boxes) as PlacedBox[], t.defaultNames),
+                }))
+              }
+              onEdgesChange={(changes) =>
+                setGraph((current) => ({
+                  ...current,
+                  wires: applyEdgeChanges(changes, current.wires.map(toFlowEdge)) as unknown as Wire[],
+                }))
+              }
+              onConnect={(connection) =>
+                setGraph((current) => ({ ...current, wires: connect(current.boxes, current.wires, wireOf(connection)) }))
+              }
+              onConnectStart={(_, { nodeId, handleId, handleType }) => setConnecting(kindsFrom(nodeId, handleId, handleType))}
+              onConnectEnd={() => setConnecting(null)}
+              isValidConnection={(connection) => canConnect(graph.boxes, wireOf(connection))}
+              deleteKeyCode={['Backspace', 'Delete']}
+              minZoom={0.3}
+              fitView
+              fitViewOptions={FIT_VIEW}
+            >
+              <Background gap={24} color="var(--line)" />
+              <Controls showInteractive={false} />
+            </ReactFlow>
+          </CardContext.Provider>
+        </div>
+        {showPlan && <PlanPanel input={input} />}
       </div>
     </div>
   );

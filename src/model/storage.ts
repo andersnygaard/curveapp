@@ -7,7 +7,7 @@ import type { DefaultNames, Graph, PlacedBox, Wire } from './types';
 
 const STORAGE_KEY = 'curve.boxes';
 const BACKUP_KEY = 'curve.boxes.backup';
-const VERSION = 2;
+export const VERSION = 2;
 
 type Stored = { version?: number; boxes?: PlacedBox[]; wires?: Wire[] };
 

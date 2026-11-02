@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { compile } from './compile';
 import { defaultGraph, inputOf } from './graph';
-import { loadGraph, parseGraph, saveGraph, serializeGraph } from './storage';
-import type { DefaultNames } from './types';
+import { loadGraph, parseGraph, saveGraph, serializeGraph, VERSION } from './storage';
+import type { DefaultNames, Graph, PlacedBox, Wire } from './types';
 import { runPass } from '../engine/engine';
 import { noNoise } from '../engine/random';
 
@@ -17,6 +17,7 @@ const names: DefaultNames = {
   otp: 'OTP',
   folketrygd: 'NP',
   withdrawal: 'Withdrawal',
+  summary: 'Summary',
 };
 
 const accountV1 = {
@@ -135,6 +136,17 @@ describe('boxes saved by version 1', () => {
 });
 
 describe('saving and loading', () => {
+  it('keeps a summary and what it reads', () => {
+    const boxes = [
+      { id: 'a', type: 'account', position: { x: 0, y: 0 }, data: { name: 'a' } },
+      { id: 's', type: 'summary', position: { x: 0, y: 0 }, data: { name: 'Both' } },
+    ] as PlacedBox[];
+    const wires: Wire[] = [{ id: 'a-s-basis', source: 'a', target: 's', kind: 'basis' }];
+    const { boxes: loaded, wires: loadedWires } = parseGraph(serializeGraph({ boxes, wires }), names);
+    expect(loaded.find((box) => box.id === 's')?.data).toEqual({ name: 'Both' });
+    expect(loadedWires).toEqual(wires);
+  });
+
   it('gets back what was saved, without what belongs to the canvas', () => {
     const graph = defaultGraph(names);
     const selected = { ...graph, boxes: graph.boxes.map((box) => ({ ...box, selected: true, measured: { width: 1, height: 1 } })) };
@@ -179,6 +191,55 @@ describe('saving and loading', () => {
     const again = parseGraph(JSON.stringify(stored), names);
     expect(Array.isArray((again.boxes.find((box) => box.id === 'b')!.data as { lines: unknown }).lines)).toBe(true);
     expect((again.boxes.find((box) => box.id === 'o')!.data as { payoutAge: unknown }).payoutAge).toBeNull();
+  });
+});
+
+// A file can lie around for years and skip many versions, so every version that has existed has an example here.
+describe('files saved by earlier versions', () => {
+  const files = import.meta.glob<string>('./__saved__/*.json', { query: '?raw', import: 'default', eager: true });
+  const load = (version: number) => parseGraph(files[`./__saved__/version-${version}.json`], names);
+  const boxOf = (graph: Graph, id: string) => graph.boxes.find((box) => box.id === id)?.data;
+
+  it('has an example of every version up to the current one', () => {
+    const versions = Array.from({ length: VERSION }, (_, index) => `./__saved__/version-${index + 1}.json`);
+    expect(Object.keys(files).sort()).toEqual(versions);
+  });
+
+  it.each(Object.keys(files))('%s can still be read and simulated', (file) => {
+    const graph = parseGraph(files[file], names);
+    const { closing } = runPass(compile(inputOf(graph), 5), noNoise);
+    expect(closing.every(Number.isFinite)).toBe(true);
+    expect(closing.some((balance) => balance > 0)).toBe(true);
+  });
+
+  it.each(Object.keys(files))('%s comes out the same when saved again', (file) => {
+    const graph = parseGraph(files[file], names);
+    expect(inputOf(parseGraph(serializeGraph(graph), names))).toEqual(inputOf(graph));
+  });
+
+  it('keeps the figures in a file from version 1, which had one amount for both money and pension basis', () => {
+    const graph = load(1);
+    expect(boxOf(graph, 'salary')).toMatchObject({ amount: 40_000, pensionBasis: 480_000 });
+    expect(boxOf(graph, 'fund')).toMatchObject({ startAmount: 100_000 });
+    expect(boxOf(graph, 'occupational')).toMatchObject({ startAmount: 200_000, lowRate: 5, highRate: 8 });
+    expect(boxOf(graph, 'national')).toMatchObject({ startAmount: 1_000_000 });
+    expect(boxOf(graph, 'fund-return')).toMatchObject({ annualReturn: 6, standardDeviation: 12 });
+    expect(graph.boxes.find((box) => box.id === 'national')?.type).toBe('folketrygd');
+    expect(boxOf(graph, 'g')).toMatchObject({ g: 130_000 });
+    expect(graph.wires.map(({ source, target, kind }) => `${source}>${target}:${kind}`)).toEqual(
+      expect.arrayContaining(['salary>saving:money', 'saving>fund:money', 'salary>occupational:basis', 'salary>national:basis']),
+    );
+  });
+
+  it('gives an account saved before shielding existed the default rate and nothing unused', () => {
+    expect(boxOf(load(2), 'fund')).toMatchObject({ accountType: 'ask', shieldRate: 3.6, unusedShield: 0 });
+  });
+
+  it('keeps every figure and wire in a file from version 2', () => {
+    const stored = JSON.parse(files['./__saved__/version-2.json']);
+    const graph = load(2);
+    for (const box of stored.boxes) expect(boxOf(graph, box.id)).toMatchObject(box.data);
+    expect(graph.wires).toEqual(stored.wires);
   });
 });
 

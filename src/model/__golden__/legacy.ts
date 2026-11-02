@@ -66,6 +66,9 @@ export function toInput(scenario: LegacyScenario): SimulationInput {
           accountType: account.ask ? 'ask' : 'regular',
           taxRate: (account.ask?.taxRate ?? 0) * 100,
           inflation: (account.ask?.inflation ?? 0) * 100,
+          // The old engine had no shielding.
+          shieldRate: 0,
+          unusedShield: 0,
         },
       });
     }
