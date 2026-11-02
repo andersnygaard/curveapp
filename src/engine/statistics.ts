@@ -1,8 +1,10 @@
 // What many passes add up to. The median, the share that holds and the scale are all read from real passes.
 import type { Model, PassResult } from './engine';
 
-// The most extreme passes may leave the top of the graph, which keeps the rest of the fan readable.
+// The most extreme passes may leave the top of the graph, which keeps the rest of the fan readable. Over many
+// years the fan gets very wide, so the top is also limited by the median, which is what the graph is there to show.
 const SCALE_PERCENTILE = 0.95;
+const SCALE_LIMIT_IN_MEDIANS = 4;
 const SCALE_MARGIN = 1.05;
 
 export interface StockSummary {
@@ -62,7 +64,9 @@ function peak(series: ArrayLike<number>): number {
 function scaleOf(results: PassResult[], chart: number, median: Float64Array): number {
   const peaks = Float64Array.from(results, (result) => peak(result.series[chart])).sort();
   const high = peaks[Math.min(peaks.length - 1, Math.floor(peaks.length * SCALE_PERCENTILE))];
-  return Math.max(high, peak(median)) * SCALE_MARGIN || 1;
+  const middle = peak(median);
+  const top = middle > 0 ? Math.min(high, SCALE_LIMIT_IN_MEDIANS * middle) : high;
+  return Math.max(top, middle) * SCALE_MARGIN || 1;
 }
 
 const shareHeld = (results: PassResult[], stock: number) =>

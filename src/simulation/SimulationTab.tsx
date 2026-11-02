@@ -1,9 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { translations, type Language } from '../i18n';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import type { StockSummary } from '../engine/statistics';
+import { DAY_MS } from '../engine/timeline';
+import { useTranslations } from '../i18n';
+import { hasStocks, yearsToAge } from '../model/compile';
+import { assumptionsOf } from '../model/query';
+import type { SimulationInput } from '../model/types';
 import AccountChart from './AccountChart';
-import { createSimulation } from './engine';
-import { Player } from './player';
-import type { Scenario } from './scenario';
+import { useSimulation } from './useSimulation';
 
 const HORIZONS = [5, 10, 20, 30];
 const DEFAULT_YEARS = 30;
@@ -11,34 +14,29 @@ const LAST_AGE = 95;
 const MAX_FRAME_MS = 100;
 
 interface Props {
-  language: Language;
   active: boolean;
-  scenario: Scenario;
+  input: SimulationInput;
 }
 
-export default function SimulationTab({ language, active, scenario }: Props) {
-  const t = translations[language];
+const reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+export default function SimulationTab({ active, input }: Props) {
+  const t = useTranslations();
   const [horizon, setHorizon] = useState<number | 'lastAge'>(DEFAULT_YEARS);
   const [paused, setPaused] = useState(false);
-  const [completed, setCompleted] = useState(0);
+  const [, setPassesPlayed] = useState(0);
 
-  // Edits in the Input tab take effect on the way back here, so typing never waits for a new simulation.
-  const [applied, setApplied] = useState(scenario);
-  if (active && applied !== scenario) setApplied(scenario);
+  // Edits in the Input tab take effect on the way back here, so typing never starts a new simulation.
+  const [applied, setApplied] = useState(input);
+  if (active && applied !== input) setApplied(input);
 
-  const { birthYear } = applied;
-  const startYear = Math.min(...[...applied.accounts, ...applied.pensions].map((entry) => Date.parse(entry.startDate)));
-  const yearsToLastAge = birthYear === null ? 0 : LAST_AGE - (new Date(startYear).getUTCFullYear() - birthYear);
+  const { birthYear } = assumptionsOf(applied.boxes);
+  const yearsToLastAge = yearsToAge(applied, LAST_AGE);
   const canReachLastAge = yearsToLastAge > 0;
   const showingLastAge = horizon === 'lastAge' && canReachLastAge;
   const years = showingLastAge ? yearsToLastAge : horizon === 'lastAge' ? DEFAULT_YEARS : horizon;
 
-  const player = useMemo(
-    () =>
-      applied.accounts.length + applied.pensions.length > 0 ? new Player(createSimulation(applied, years)) : null,
-    [applied, years],
-  );
-  useEffect(() => setCompleted(0), [player]);
+  const { player, revision, failed } = useSimulation(applied, years);
 
   const drawers = useRef(new Set<() => void>());
   const registerDraw = useCallback((draw: () => void) => {
@@ -54,14 +52,33 @@ export default function SimulationTab({ language, active, scenario }: Props) {
     let frame = requestAnimationFrame(function tick(now) {
       const elapsed = Math.max(0, Math.min(now - last, MAX_FRAME_MS));
       last = now;
-      if (player.advance(elapsed)) setCompleted(player.completed);
+      if (player.advance(elapsed, reducedMotion())) setPassesPlayed(player.completed);
       drawers.current.forEach((draw) => draw());
       frame = requestAnimationFrame(tick);
     });
     return () => cancelAnimationFrame(frame);
   }, [active, paused, player]);
 
-  if (!player) return <p className="sim-empty">{t.noAccounts}</p>;
+  // The median gets sharper in the background, also while paused.
+  useEffect(() => drawers.current.forEach((draw) => draw()), [revision]);
+
+  if (!hasStocks(applied)) return <p className="sim-empty">{t.noAccounts}</p>;
+  if (failed) return <p className="sim-empty">{t.simulationFailed}</p>;
+  if (!player) return <p className="sim-empty">{t.calculating}</p>;
+
+  // The text follows the passes on screen, also in the moment before a new run has its first picture.
+  const toLastAge = player.years === yearsToLastAge && horizon === 'lastAge';
+  const percent = new Intl.NumberFormat(t.locale, { style: 'percent', maximumFractionDigits: 0 });
+  const ageAt = (day: number) =>
+    new Date(player.layout.startMs + day * DAY_MS).getUTCFullYear() - (birthYear ?? 0);
+
+  function headlineOf(stock: StockSummary, money: Intl.NumberFormat): string {
+    const amount = money.format(stock.lastValue);
+    if (stock.closeDay !== null && stock.closeDay < player!.layout.totalDays) {
+      return t.balanceAtAge(ageAt(stock.closeDay), amount);
+    }
+    return toLastAge ? t.medianAtAge(LAST_AGE, amount) : t.medianAfter(player!.years, amount);
+  }
 
   return (
     <div className="sim">
@@ -90,7 +107,7 @@ export default function SimulationTab({ language, active, scenario }: Props) {
           )}
         </div>
         <div className="sim-status">
-          <span>{t.passNumber(completed + 1)}</span>
+          <span>{t.passNumber(player.completed + 1)}</span>
           <button type="button" className="sim-pause" onClick={() => setPaused(!paused)}>
             {paused ? t.resume : t.pause}
           </button>
@@ -98,31 +115,46 @@ export default function SimulationTab({ language, active, scenario }: Props) {
       </div>
       <p className="sim-legend">{t.simulationLegend}</p>
 
-      {player.simulation.accounts.map((account, index) => {
+      {player.summary.gates.map((gate) => (
+        <p key={gate.id} className="sim-gate">
+          {toLastAge
+            ? t.gateHeldToAge(gate.name, percent.format(gate.heldShare), LAST_AGE)
+            : t.gateHeldWholePeriod(gate.name, percent.format(gate.heldShare))}
+        </p>
+      ))}
+
+      {player.summary.stocks.map((stock, index) => {
         const money = new Intl.NumberFormat(t.locale, {
           style: 'currency',
-          currency: account.currency,
+          currency: stock.currency,
           maximumFractionDigits: 0,
         });
-        const endValue = money.format(account.expected[account.expected.length - 1]);
-        const expected = showingLastAge ? t.expectedAtAge(LAST_AGE, endValue) : t.expectedAfter(years, endValue);
+        const headline = headlineOf(stock, money);
         return (
-          <section key={account.id} className="chart">
+          <section key={stock.id} className="chart">
             <div className="chart-heading">
-              <h2 className="chart-name">{account.name}</h2>
-              <span className="chart-expected">{expected}</span>
+              <h2 className="chart-name">{stock.name}</h2>
+              <span className="chart-headline">{headline}</span>
             </div>
-            {account.calculated && <p className="chart-note">{t.calculatedBalance}</p>}
-            {account.afterTax !== undefined && (
-              <p className="chart-note">{t.afterTaxIfWithdrawn(money.format(account.afterTax))}</p>
+            {stock.calculated && <p className="chart-note">{t.calculatedBalance}</p>}
+            {stock.payoutPerYear !== null && (
+              <p className="chart-note">{t.payoutPerYear(money.format(stock.payoutPerYear))}</p>
             )}
+            {stock.heldShare !== null && (
+              <p className="chart-note">
+                {toLastAge
+                  ? t.heldToAge(percent.format(stock.heldShare), LAST_AGE)
+                  : t.heldWholePeriod(percent.format(stock.heldShare))}
+              </p>
+            )}
+            {stock.afterTax !== null && <p className="chart-note">{t.afterTaxIfWithdrawn(money.format(stock.afterTax))}</p>}
             <AccountChart
               player={player}
               index={index}
               locale={t.locale}
               birthYear={birthYear}
               ageLabel={t.ageTick}
-              description={`${account.name}. ${expected}`}
+              description={`${stock.name}. ${headline}`}
               registerDraw={registerDraw}
             />
           </section>

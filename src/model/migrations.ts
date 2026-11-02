@@ -1,23 +1,18 @@
 // How boxes saved by earlier versions of the app are brought up to date. Stored data must keep working, and a
 // stored pension figure must never change meaning without the user knowing. Unknown fields are left out by
 // the next step, which fills in defaults.
+import { overlaps, wireOf } from './graph';
 import type { PlacedBox, Wire, WireKind, XYPosition } from './types';
-import { wireOf } from './graph';
 
 const PAYMENTS_PER_YEAR: Record<string, number> = { weekly: 52, monthly: 12, quarterly: 4, yearly: 1 };
-const ESTIMATED_BOX = { width: 296, height: 210 };
-const RETURN_BOX_SPACE = 250;
+const RETURN_BOX_SPACE = 320;
 
 type Stored = { id: string; type: string; position?: XYPosition; data?: Record<string, unknown> };
 export type Version1 = { nodes: Stored[]; edges: { source: string; target: string }[] };
 
-function overlaps(a: XYPosition, b: XYPosition): boolean {
-  return Math.abs(a.x - b.x) < ESTIMATED_BOX.width && Math.abs(a.y - b.y) < ESTIMATED_BOX.height;
-}
-
 function freeSpotAbove(position: XYPosition, taken: XYPosition[]): XYPosition {
   let spot = { x: position.x, y: position.y - RETURN_BOX_SPACE };
-  while (taken.some((other) => overlaps(spot, other))) spot = { x: spot.x, y: spot.y - ESTIMATED_BOX.height };
+  while (taken.some((other) => overlaps(spot, other))) spot = { x: spot.x, y: spot.y - RETURN_BOX_SPACE };
   return spot;
 }
 
@@ -51,7 +46,7 @@ export function fromVersion1({ nodes, edges }: Version1): { boxes: PlacedBox[]; 
         id: `${id}-return`,
         type: 'return',
         position: spot,
-        data: { name: `${String(data.name)}: return`, annualReturn, returnInterval, standardDeviation },
+        data: { name: data.name, annualReturn, returnInterval, standardDeviation },
       });
       wires.push(wireOf(`${id}-return`, id, 'influence'));
     } else if (node.type === 'pension') {

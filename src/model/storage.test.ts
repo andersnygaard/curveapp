@@ -65,7 +65,7 @@ describe('boxes saved by version 1', () => {
     const market = find('a-return');
     for (const box of graph.boxes) {
       if (box.id === market.id) continue;
-      const clear = Math.abs(box.position.x - market.position.x) >= 296 || Math.abs(box.position.y - market.position.y) >= 210;
+      const clear = Math.abs(box.position.x - market.position.x) >= 296 || Math.abs(box.position.y - market.position.y) >= 240;
       expect(clear, box.id).toBe(true);
     }
   });

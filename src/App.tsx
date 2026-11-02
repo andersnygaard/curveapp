@@ -1,8 +1,8 @@
 import { useState, type KeyboardEvent } from 'react';
 import { BritishFlag, NorwegianFlag } from './flags';
-import { translations, useLanguage } from './i18n';
-import { useBoxes, useScenario } from './input/boxes';
+import { LanguageContext, translations, useLanguage } from './i18n';
 import InputTab from './input/InputTab';
+import { useGraph, useSimulationInput } from './input/useGraph';
 import SimulationTab from './simulation/SimulationTab';
 
 const tabs = ['simulation', 'input'] as const;
@@ -11,9 +11,9 @@ type Tab = (typeof tabs)[number];
 export default function App() {
   const [language, setLanguage] = useLanguage();
   const [activeTab, setActiveTab] = useState<Tab>('simulation');
-  const [graph, setGraph] = useBoxes();
-  const scenario = useScenario(graph);
   const t = translations[language];
+  const { graph, setGraph, recovered } = useGraph(t.defaultNames);
+  const input = useSimulationInput(graph);
 
   function moveBetweenTabs(event: KeyboardEvent) {
     if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
@@ -24,7 +24,7 @@ export default function App() {
   }
 
   return (
-    <>
+    <LanguageContext.Provider value={language}>
       <header className="header">
         <h1 className="wordmark">Curve</h1>
         <div className="flags" role="group" aria-label={t.language}>
@@ -82,7 +82,7 @@ export default function App() {
           aria-labelledby="tab-simulation"
           hidden={activeTab !== 'simulation'}
         >
-          <SimulationTab language={language} active={activeTab === 'simulation'} scenario={scenario} />
+          <SimulationTab active={activeTab === 'simulation'} input={input} />
         </section>
         <section
           id="panel-input"
@@ -91,7 +91,7 @@ export default function App() {
           aria-labelledby="tab-input"
           hidden={activeTab !== 'input'}
         >
-          {activeTab === 'input' && <InputTab language={language} graph={graph} setGraph={setGraph} />}
+          {activeTab === 'input' && <InputTab graph={graph} setGraph={setGraph} input={input} recovered={recovered} />}
         </section>
       </main>
 
@@ -99,6 +99,6 @@ export default function App() {
         <span>Curve</span>
         <span>{t.privacyStatement}</span>
       </footer>
-    </>
+    </LanguageContext.Provider>
   );
 }

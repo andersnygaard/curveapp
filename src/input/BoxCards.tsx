@@ -1,89 +1,64 @@
-import { useContext, useState, type ReactNode } from 'react';
-import {
-  BaseEdge,
-  EdgeLabelRenderer,
-  getBezierPath,
-  Handle,
-  Position,
-  useReactFlow,
-  type EdgeProps,
-  type NodeProps,
-} from '@xyflow/react';
-import { LanguageContext, translations } from '../i18n';
-import type { IncomeInterval, ReturnInterval } from '../simulation/scenario';
-import type { AccountBox, Box, BoxType, GBox, IncomeBox, MeBox, OtpBox, PensionBox, TransferBox } from './boxes';
+import { createContext, useContext, type ReactNode } from 'react';
+import { Handle, Position, useReactFlow, type Node, type NodeProps } from '@xyflow/react';
+import { CheckField, DateField, Field, NumberField, OptionalNumberField, SelectField, TextField } from '../components/fields';
+import { estimatedDivisor } from '../engine/norway';
+import type { Interval } from '../engine/timeline';
+import { useTranslations, type Translations } from '../i18n';
+import { incomePerMonth, spendPerMonth, type BudgetLine } from '../model/boxes/budget';
+import type { IncomeInterval } from '../model/boxes/pay';
+import type { ReturnInterval } from '../model/boxes/returnBox';
+import { drawsFromAccount } from '../model/boxes/transfer';
+import { catalog } from '../model/catalog';
+import type { Diagnostic, GraphQuery } from '../model/spec';
+import type { Box, BoxOfType, BoxType, WireKind } from '../model/types';
 
 const INCOME_INTERVALS: IncomeInterval[] = ['weekly', 'monthly', 'quarterly', 'yearly'];
 const RETURN_INTERVALS: ReturnInterval[] = ['daily', 'tradingDays', 'monthly', 'yearly'];
+const TRANSFER_INTERVALS: Interval[] = ['monthly', 'quarterly', 'yearly'];
+const INTO_FROM: Record<WireKind, Position> = { money: Position.Left, influence: Position.Top, basis: Position.Left };
+const OUT_TO: Record<WireKind, Position> = { money: Position.Right, influence: Position.Bottom, basis: Position.Bottom };
 
-function useTranslations() {
-  return translations[useContext(LanguageContext)];
+interface CardContextValue {
+  query: GraphQuery;
+  diagnostics: Diagnostic[];
+  money: (amount: number) => string;
 }
 
-function Field({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <label className="box-field">
-      <span>{label}</span>
-      {children}
-    </label>
-  );
+export const CardContext = createContext<CardContextValue | null>(null);
+
+const useCardContext = () => useContext(CardContext)!;
+
+type CardProps<Type extends BoxType> = NodeProps<Node<BoxOfType<Type>['data'] & Record<string, unknown>, Type>>;
+
+function useUpdate<Type extends BoxType>(id: string) {
+  const { updateNodeData } = useReactFlow();
+  return (patch: Partial<BoxOfType<Type>['data']>) => updateNodeData(id, patch);
 }
 
-function TextField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
-  return (
-    <Field label={label}>
-      <input className="nodrag" value={value} onChange={(event) => onChange(event.target.value)} />
-    </Field>
-  );
-}
+const intervalOptions = <T extends keyof Translations>(t: Translations, values: T[]) =>
+  values.map((value) => ({ value, label: String(t[value]) }));
 
-// Keeps what is typed, so a field can be empty on the way to a new number.
-function NumberField({ label, value, onChange }: { label: string; value: number; onChange: (value: number) => void }) {
-  const [text, setText] = useState(String(value));
+function Ports({ type }: { type: BoxType }) {
+  const { takes, gives } = catalog[type];
   return (
-    <Field label={label}>
-      <input
-        className="nodrag"
-        type="number"
-        value={text}
-        onChange={(event) => {
-          setText(event.target.value);
-          onChange(Number(event.target.value) || 0);
-        }}
-        onBlur={() => setText(String(value))}
-      />
-    </Field>
-  );
-}
-
-function IntervalField<T extends IncomeInterval | ReturnInterval>(props: {
-  label: string;
-  value: T;
-  options: T[];
-  onChange: (value: T) => void;
-}) {
-  const t = useTranslations();
-  return (
-    <Field label={props.label}>
-      <select className="nodrag" value={props.value} onChange={(event) => props.onChange(event.target.value as T)}>
-        {props.options.map((option) => (
-          <option key={option} value={option}>
-            {t[option]}
-          </option>
-        ))}
-      </select>
-    </Field>
+    <>
+      {(Object.keys(takes ?? {}) as WireKind[]).map((kind) => (
+        <Handle key={`in-${kind}`} id={kind} type="target" position={INTO_FROM[kind]} className={`port port-${kind}`} />
+      ))}
+      {(Object.keys(gives ?? {}) as WireKind[]).map((kind) => (
+        <Handle key={`out-${kind}`} id={kind} type="source" position={OUT_TO[kind]} className={`port port-${kind}`} />
+      ))}
+    </>
   );
 }
 
 function BoxCard({ id, type, name, children }: { id: string; type: BoxType; name?: string; children: ReactNode }) {
   const t = useTranslations();
   const { deleteElements } = useReactFlow();
+  const { diagnostics } = useCardContext();
   return (
     <div className={`box box-${type}`}>
-      {(type === 'transfer' || type === 'account' || type === 'otp' || type === 'pension') && (
-        <Handle type="target" position={Position.Left} />
-      )}
+      <Ports type={type} />
       <div className="box-header">
         <span>{t[type]}</span>
         {name !== undefined && (
@@ -98,88 +73,138 @@ function BoxCard({ id, type, name, children }: { id: string; type: BoxType; name
         )}
       </div>
       {children}
-      {(type === 'income' || type === 'transfer') && <Handle type="source" position={Position.Right} />}
+      {diagnostics
+        .filter((diagnostic) => diagnostic.boxId === id)
+        .map(({ code }) => (
+          <p key={code} className="box-warning">
+            {t.diagnostics[code]}
+          </p>
+        ))}
     </div>
   );
 }
 
-function useUpdate<B extends Box>(id: string) {
-  const { updateNodeData } = useReactFlow();
-  return (patch: Partial<B['data']>) => updateNodeData(id, patch);
-}
-
-function IncomeCard({ id, data }: NodeProps<IncomeBox>) {
+function IncomeCard({ id, data }: CardProps<'income'>) {
   const t = useTranslations();
-  const update = useUpdate<IncomeBox>(id);
+  const update = useUpdate<'income'>(id);
   return (
     <BoxCard id={id} type="income" name={data.name}>
       <TextField label={t.name} value={data.name} onChange={(name) => update({ name })} />
-      <NumberField label={t.amount} value={data.amount} onChange={(amount) => update({ amount })} />
-      <IntervalField
+      <NumberField label={t.netPay} value={data.amount} onChange={(amount) => update({ amount })} />
+      <SelectField
         label={t.interval}
         value={data.interval}
-        options={INCOME_INTERVALS}
+        options={intervalOptions(t, INCOME_INTERVALS)}
         onChange={(interval) => update({ interval })}
+      />
+      <NumberField label={t.pensionBasis} value={data.pensionBasis} onChange={(pensionBasis) => update({ pensionBasis })} />
+      <CheckField
+        label={t.stopsAtRetirement}
+        value={data.stopsAtRetirement}
+        onChange={(stopsAtRetirement) => update({ stopsAtRetirement })}
       />
     </BoxCard>
   );
 }
 
-function TransferCard({ id, data }: NodeProps<TransferBox>) {
+function TransferCard({ id, data, type }: CardProps<'transfer'>) {
   const t = useTranslations();
-  const update = useUpdate<TransferBox>(id);
+  const update = useUpdate<'transfer'>(id);
+  const { query } = useCardContext();
+  const source = query.into({ id, type, data } as Box, 'money')[0];
   return (
     <BoxCard id={id} type="transfer" name={data.name}>
       <TextField label={t.name} value={data.name} onChange={(name) => update({ name })} />
       <NumberField label={t.amount} value={data.amount} onChange={(amount) => update({ amount })} />
+      {drawsFromAccount(source) && (
+        <SelectField
+          label={t.interval}
+          value={data.interval}
+          options={intervalOptions(t, TRANSFER_INTERVALS)}
+          onChange={(interval) => update({ interval })}
+        />
+      )}
     </BoxCard>
   );
 }
 
-function AccountCard({ id, data }: NodeProps<AccountBox>) {
+function BudgetCard({ id, data, type }: CardProps<'budget'>) {
   const t = useTranslations();
-  const update = useUpdate<AccountBox>(id);
+  const update = useUpdate<'budget'>(id);
+  const { query, money } = useCardContext();
+  const box = { id, type, data } as BoxOfType<'budget'>;
+  const spend = spendPerMonth(box);
+  const income = incomePerMonth(box, query);
+
+  function setLine(lineId: string, patch: Partial<BudgetLine>) {
+    update({ lines: data.lines.map((line) => (line.id === lineId ? { ...line, ...patch } : line)) });
+  }
+  function addLine() {
+    const lineId = `line-${Date.now().toString(36)}`;
+    update({ lines: [...data.lines, { id: lineId, name: t.newBudgetLine, amount: 0 }] });
+  }
+
+  return (
+    <BoxCard id={id} type="budget" name={data.name}>
+      <TextField label={t.name} value={data.name} onChange={(name) => update({ name })} />
+      {data.lines.map((line) => (
+        <div key={line.id} className="budget-line">
+          <input
+            className="nodrag"
+            aria-label={t.budgetLineName}
+            value={line.name}
+            onChange={(event) => setLine(line.id, { name: event.target.value })}
+          />
+          <input
+            className="nodrag"
+            type="number"
+            aria-label={t.budgetLineAmount}
+            value={line.amount || ''}
+            onChange={(event) => setLine(line.id, { amount: Number(event.target.value) || 0 })}
+          />
+          <button
+            type="button"
+            className="box-delete nodrag"
+            aria-label={t.deleteBudgetLine(line.name)}
+            onClick={() => update({ lines: data.lines.filter((other) => other.id !== line.id) })}
+          >
+            ×
+          </button>
+        </div>
+      ))}
+      <button type="button" className="input-add budget-add nodrag" onClick={addLine}>
+        {t.addBudgetLine}
+      </button>
+      <Field label={t.budgetSum}>
+        <span className="box-value">{money(spend)}</span>
+      </Field>
+      <Field label={t.budgetLeft}>
+        <span className="box-value">{money(Math.max(0, income - spend))}</span>
+      </Field>
+    </BoxCard>
+  );
+}
+
+function AccountCard({ id, data }: CardProps<'account'>) {
+  const t = useTranslations();
+  const update = useUpdate<'account'>(id);
   return (
     <BoxCard id={id} type="account" name={data.name}>
-      <Field label={t.accountType}>
-        <select
-          className="nodrag"
-          value={data.accountType}
-          onChange={(event) => update({ accountType: event.target.value as AccountBox['data']['accountType'] })}
-        >
-          <option value="regular">{t.regularAccount}</option>
-          <option value="ask">{t.askAccount}</option>
-        </select>
-      </Field>
+      <SelectField
+        label={t.accountType}
+        value={data.accountType}
+        options={[
+          { value: 'regular', label: t.regularAccount },
+          { value: 'ask', label: t.askAccount },
+        ]}
+        onChange={(accountType) => update({ accountType })}
+      />
       <TextField label={t.name} value={data.name} onChange={(name) => update({ name })} />
       <NumberField label={t.startAmount} value={data.startAmount} onChange={(startAmount) => update({ startAmount })} />
-      <Field label={t.startDate}>
-        <input
-          className="nodrag"
-          type="date"
-          value={data.startDate}
-          onChange={(event) => update({ startDate: event.target.value })}
-        />
-      </Field>
+      <DateField label={t.startDate} value={data.startDate} onChange={(startDate) => update({ startDate })} />
       <Field label={t.currency}>
         <span className="box-value">{data.currency}</span>
       </Field>
-      <NumberField
-        label={t.annualReturn}
-        value={data.annualReturn}
-        onChange={(annualReturn) => update({ annualReturn })}
-      />
-      <IntervalField
-        label={t.returnInterval}
-        value={data.returnInterval}
-        options={RETURN_INTERVALS}
-        onChange={(returnInterval) => update({ returnInterval })}
-      />
-      <NumberField
-        label={t.standardDeviation}
-        value={data.standardDeviation}
-        onChange={(standardDeviation) => update({ standardDeviation })}
-      />
       {data.accountType === 'ask' && (
         <>
           <NumberField label={t.taxRate} value={data.taxRate} onChange={(taxRate) => update({ taxRate })} />
@@ -190,30 +215,17 @@ function AccountCard({ id, data }: NodeProps<AccountBox>) {
   );
 }
 
-function OtpCard({ id, data }: NodeProps<OtpBox>) {
+function ReturnCard({ id, data }: CardProps<'return'>) {
   const t = useTranslations();
-  const update = useUpdate<OtpBox>(id);
+  const update = useUpdate<'return'>(id);
   return (
-    <BoxCard id={id} type="otp" name={data.name}>
+    <BoxCard id={id} type="return" name={data.name}>
       <TextField label={t.name} value={data.name} onChange={(name) => update({ name })} />
-      <NumberField label={t.startAmount} value={data.startAmount} onChange={(startAmount) => update({ startAmount })} />
-      <Field label={t.startDate}>
-        <input
-          className="nodrag"
-          type="date"
-          value={data.startDate}
-          onChange={(event) => update({ startDate: event.target.value })}
-        />
-      </Field>
-      <NumberField
-        label={t.annualReturn}
-        value={data.annualReturn}
-        onChange={(annualReturn) => update({ annualReturn })}
-      />
-      <IntervalField
+      <NumberField label={t.annualReturn} value={data.annualReturn} onChange={(annualReturn) => update({ annualReturn })} />
+      <SelectField
         label={t.returnInterval}
         value={data.returnInterval}
-        options={RETURN_INTERVALS}
+        options={intervalOptions(t, RETURN_INTERVALS)}
         onChange={(returnInterval) => update({ returnInterval })}
       />
       <NumberField
@@ -221,34 +233,79 @@ function OtpCard({ id, data }: NodeProps<OtpBox>) {
         value={data.standardDeviation}
         onChange={(standardDeviation) => update({ standardDeviation })}
       />
+      <p className="box-note">{t.returnNote}</p>
+    </BoxCard>
+  );
+}
+
+function OtpCard({ id, data }: CardProps<'otp'>) {
+  const t = useTranslations();
+  const update = useUpdate<'otp'>(id);
+  return (
+    <BoxCard id={id} type="otp" name={data.name}>
+      <TextField label={t.name} value={data.name} onChange={(name) => update({ name })} />
+      <NumberField label={t.startAmount} value={data.startAmount} onChange={(startAmount) => update({ startAmount })} />
+      <DateField label={t.startDate} value={data.startDate} onChange={(startDate) => update({ startDate })} />
       <NumberField label={t.lowRate} value={data.lowRate} onChange={(lowRate) => update({ lowRate })} />
       <NumberField label={t.highRate} value={data.highRate} onChange={(highRate) => update({ highRate })} />
+      <OptionalNumberField label={t.payoutAge} value={data.payoutAge} onChange={(payoutAge) => update({ payoutAge })} />
+      {data.payoutAge !== null && (
+        <NumberField label={t.payoutYears} value={data.payoutYears} onChange={(payoutYears) => update({ payoutYears })} />
+      )}
     </BoxCard>
   );
 }
 
-function PensionCard({ id, data }: NodeProps<PensionBox>) {
+function FolketrygdCard({ id, data }: CardProps<'folketrygd'>) {
   const t = useTranslations();
-  const update = useUpdate<PensionBox>(id);
+  const update = useUpdate<'folketrygd'>(id);
   return (
-    <BoxCard id={id} type="pension" name={data.name}>
+    <BoxCard id={id} type="folketrygd" name={data.name}>
       <TextField label={t.name} value={data.name} onChange={(name) => update({ name })} />
       <NumberField label={t.balance} value={data.startAmount} onChange={(startAmount) => update({ startAmount })} />
-      <Field label={t.date}>
-        <input
-          className="nodrag"
-          type="date"
-          value={data.startDate}
-          onChange={(event) => update({ startDate: event.target.value })}
+      <DateField label={t.date} value={data.startDate} onChange={(startDate) => update({ startDate })} />
+      <OptionalNumberField label={t.payoutAge} value={data.payoutAge} onChange={(payoutAge) => update({ payoutAge })} />
+      {data.payoutAge !== null && (
+        <OptionalNumberField
+          label={t.divisor}
+          value={data.divisor}
+          placeholder={String(estimatedDivisor(data.payoutAge))}
+          onChange={(divisor) => update({ divisor })}
         />
-      </Field>
+      )}
     </BoxCard>
   );
 }
 
-function GCard({ id, data }: NodeProps<GBox>) {
+function WithdrawalCard({ id, data }: CardProps<'withdrawal'>) {
   const t = useTranslations();
-  const update = useUpdate<GBox>(id);
+  const update = useUpdate<'withdrawal'>(id);
+  return (
+    <BoxCard id={id} type="withdrawal" name={data.name}>
+      <TextField label={t.name} value={data.name} onChange={(name) => update({ name })} />
+      <NumberField label={t.startAge} value={data.startAge} onChange={(startAge) => update({ startAge })} />
+      <SelectField
+        label={t.withdrawalMode}
+        value={data.mode}
+        options={[
+          { value: 'amount', label: t.modeAmount },
+          { value: 'percent', label: t.modePercent },
+        ]}
+        onChange={(mode) => update({ mode })}
+      />
+      {data.mode === 'amount' ? (
+        <NumberField label={t.perMonth} value={data.perMonth} onChange={(perMonth) => update({ perMonth })} />
+      ) : (
+        <NumberField label={t.percent} value={data.percent} onChange={(percent) => update({ percent })} />
+      )}
+      <p className="box-note">{t.withdrawalNote}</p>
+    </BoxCard>
+  );
+}
+
+function GCard({ id, data }: CardProps<'g'>) {
+  const t = useTranslations();
+  const update = useUpdate<'g'>(id);
   return (
     <BoxCard id={id} type="g">
       <NumberField label={t.gValue} value={data.g} onChange={(g) => update({ g })} />
@@ -263,19 +320,21 @@ function GCard({ id, data }: NodeProps<GBox>) {
   );
 }
 
-function MeCard({ id, data }: NodeProps<MeBox>) {
+function MeCard({ id, data }: CardProps<'me'>) {
   const t = useTranslations();
-  const update = useUpdate<MeBox>(id);
+  const update = useUpdate<'me'>(id);
   return (
     <BoxCard id={id} type="me">
-      <Field label={t.birthYear}>
-        <input
-          className="nodrag"
-          type="number"
-          value={data.birthYear || ''}
-          onChange={(event) => update({ birthYear: Number(event.target.value) || 0 })}
-        />
-      </Field>
+      <OptionalNumberField
+        label={t.birthYear}
+        value={data.birthYear || null}
+        onChange={(birthYear) => update({ birthYear: birthYear ?? 0 })}
+      />
+      <OptionalNumberField
+        label={t.retirementAge}
+        value={data.retirementAge}
+        onChange={(retirementAge) => update({ retirementAge })}
+      />
       <p className="box-note">{t.meNote}</p>
     </BoxCard>
   );
@@ -284,35 +343,12 @@ function MeCard({ id, data }: NodeProps<MeBox>) {
 export const nodeTypes = {
   income: IncomeCard,
   transfer: TransferCard,
+  budget: BudgetCard,
   account: AccountCard,
+  return: ReturnCard,
   otp: OtpCard,
-  pension: PensionCard,
+  folketrygd: FolketrygdCard,
+  withdrawal: WithdrawalCard,
   g: GCard,
   me: MeCard,
 };
-
-function BoxEdge({ id, selected, markerEnd, ...geometry }: EdgeProps) {
-  const t = useTranslations();
-  const { deleteElements } = useReactFlow();
-  const [path, labelX, labelY] = getBezierPath(geometry);
-  return (
-    <>
-      <BaseEdge id={id} path={path} markerEnd={markerEnd} />
-      {selected && (
-        <EdgeLabelRenderer>
-          <button
-            type="button"
-            className="edge-delete nodrag nopan"
-            style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)` }}
-            aria-label={t.deleteConnector}
-            onClick={() => deleteElements({ edges: [{ id }] })}
-          >
-            ×
-          </button>
-        </EdgeLabelRenderer>
-      )}
-    </>
-  );
-}
-
-export const edgeTypes = { box: BoxEdge };

@@ -96,6 +96,44 @@ export function toInput(scenario: LegacyScenario): SimulationInput {
   return { boxes, wires };
 }
 
+// The same scenario as the old app stored it in the browser.
+export function toVersion1(scenario: LegacyScenario) {
+  const at = { x: 0, y: 0 };
+  const nodes = [
+    ...scenario.incomes.map(({ id, name, amount, interval }) => ({ id, type: 'income', position: at, data: { name, amount, interval } })),
+    ...scenario.accounts.map((account) => {
+      const { id, name, startAmount, startDate, currency, annualRate, returnInterval, volatility, pensionSavings, ask } = account;
+      const common = { name, startAmount, startDate, annualReturn: annualRate * 100, returnInterval, standardDeviation: volatility * 100 };
+      return pensionSavings
+        ? { id, type: 'otp', position: at, data: { ...common, lowRate: pensionSavings.lowRate * 100, highRate: pensionSavings.highRate * 100 } }
+        : {
+            id,
+            type: 'account',
+            position: at,
+            data: { ...common, currency, accountType: ask ? 'ask' : 'regular', taxRate: (ask?.taxRate ?? 0) * 100, inflation: (ask?.inflation ?? 0) * 100 },
+          };
+    }),
+    ...scenario.pensions.map(({ id, name, startAmount, startDate }) => ({ id, type: 'pension', position: at, data: { name, startAmount, startDate } })),
+    ...scenario.transfers.map(({ id, name, amount }) => ({ id, type: 'transfer', position: at, data: { name, amount } })),
+    {
+      id: 'g',
+      type: 'g',
+      position: at,
+      data: { g: scenario.g.value, gGrowth: scenario.g.growth * 100, standardDeviation: scenario.g.volatility * 100 },
+    },
+    { id: 'me', type: 'me', position: at, data: { birthYear: 0 } },
+  ];
+  const edges = [
+    ...scenario.transfers.flatMap(({ id, incomeId, accountId }) => [
+      { source: incomeId, target: id },
+      { source: id, target: accountId },
+    ]),
+    ...scenario.accounts.flatMap(({ id, pensionSavings }) => (pensionSavings?.incomeIds ?? []).map((source) => ({ source, target: id }))),
+    ...scenario.pensions.flatMap(({ id, incomeIds }) => incomeIds.map((source) => ({ source, target: id }))),
+  ];
+  return { nodes, edges };
+}
+
 function shuffle<T>(items: T[], random: () => number) {
   for (let i = items.length - 1; i > 0; i--) {
     const j = Math.floor(random() * (i + 1));

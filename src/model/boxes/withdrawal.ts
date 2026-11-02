@@ -27,6 +27,7 @@ export const withdrawalSpec: BoxSpec<WithdrawalBox> = {
   gives: { money: 1 },
   holds: true,
   declare(gate, context) {
+    const startDay = context.dayOfAge(gate.data.startAge);
     context.addStock(gate, {
       name: gate.data.name,
       unit: 'money',
@@ -34,14 +35,15 @@ export const withdrawalSpec: BoxSpec<WithdrawalBox> = {
       opening: 0,
       openDay: 0,
       hidden: true,
-      canRunOut: true,
+      // It can only fall short once it has started, and only if that happens within the period.
+      canRunOut: startDay !== null && startDay <= context.timeline.days,
     });
   },
   build(gate, context) {
     const startDay = context.dayOfAge(gate.data.startAge);
     if (startDay === null) return;
     const pulls = context.into(gate, 'money').flatMap((box) => (box.type === 'account' ? [context.stockOf(box)] : []));
-    pulls.forEach(context.markCanRunOut);
+    if (startDay <= context.timeline.days) pulls.forEach(context.markCanRunOut);
     const overflow = context.outOf(gate, 'money')[0];
     context.addRule(
       settleGate({

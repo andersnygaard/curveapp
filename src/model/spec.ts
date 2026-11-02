@@ -21,7 +21,6 @@ export type DiagnosticCode =
   | 'transfersExceedIncome'
   | 'budgetExceedsIncome'
   | 'needsBirthYear'
-  | 'needsRetirementAge'
   | 'needsPayoutAge'
   | 'restGoesOnlyOnce'
   | 'nothingToDraw';

@@ -171,6 +171,12 @@ describe('summarize', () => {
     expect(yMax).toBeGreaterThan(1000);
   });
 
+  it('keeps the median readable when the fan gets very wide', () => {
+    const results = Array.from({ length: 19 }, (_, index) => pass([1, 100 + index * 1000, 1])).concat(pass([1, 100_000, 1]));
+    const { yMax, median } = summarize(model, results).stocks[0];
+    expect(yMax).toBeLessThanOrEqual(4 * median[1] * 1.05);
+  });
+
   it('keeps the scale from the first summary, so the graph does not jump', () => {
     const first = summarize(model, [pass([1, 100, 1])]);
     const later = summarize(model, [pass([1, 100, 1]), pass([1, 900, 1])], first);

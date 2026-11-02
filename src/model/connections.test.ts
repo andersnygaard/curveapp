@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { BOX_TYPES, catalog } from './catalog';
 import { canConnect, connect } from './connections';
+import { freeSpot, overlaps } from './graph';
 import type { Box, BoxType, Wire, WireKind } from './types';
 
 const box = (type: BoxType, id: string = type): Box => ({ id, type, data: {} }) as Box;
@@ -43,7 +44,7 @@ describe('canConnect', () => {
     ['transfer', 'transfer', 'money', 'a chain has no use'],
     ['account', 'account', 'money', 'an account cannot go straight to an account, a transfer says how much'],
     ['income', 'income', 'money', 'an income takes nothing in'],
-  ] as const)('refuses %s to %s as %s, since %s', (source, target, kind) => {
+  ] as const)('refuses %s to %s as %s, since %s', (source, target, kind, _reason) => {
     expect(can(source, target, kind)).toBe(false);
   });
 
@@ -68,6 +69,18 @@ describe('loops', () => {
         expect(catalog[target].takes!.money!.from).not.toContain(source);
       }
     }
+  });
+});
+
+describe('freeSpot', () => {
+  it('keeps the wanted place when it is free', () => {
+    expect(freeSpot({ x: 0, y: 0 }, [{ position: { x: 1000, y: 1000 } }])).toEqual({ x: 0, y: 0 });
+  });
+
+  it('finds a place that covers nothing, however crowded it is', () => {
+    const boxes = Array.from({ length: 30 }, (_, index) => ({ position: { x: (index % 6) * 100, y: Math.floor(index / 6) * 100 } }));
+    const spot = freeSpot({ x: 100, y: 100 }, boxes);
+    expect(boxes.some((box) => overlaps(spot, box.position))).toBe(false);
   });
 });
 

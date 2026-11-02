@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import golden from './__golden__/legacy-engine.json';
-import { oldDraws, toInput, type LegacyScenario } from './__golden__/legacy';
+import { runPass } from '../engine/engine';
+import { noNoise } from '../engine/random';
+import { oldDraws, toInput, toVersion1, type LegacyScenario } from './__golden__/legacy';
 import { compile } from './compile';
+import { inputOf } from './graph';
+import { parseGraph } from './storage';
+import type { DefaultNames } from './types';
 
 // Recorded from the engine this one replaced, before it was deleted. If these fail, an old result has changed.
 const { every, cases } = golden as unknown as {
@@ -28,6 +33,27 @@ function expectClose(actual: number[], recorded: number[]) {
     expect(Math.abs(value - recorded[index])).toBeLessThanOrEqual(tolerance);
   });
 }
+
+const names: DefaultNames = {
+  income: 'a',
+  transfer: 'b',
+  budget: 'c',
+  budgetHousing: 'd',
+  budgetLiving: 'e',
+  account: 'f',
+  return: 'g',
+  otp: 'h',
+  folketrygd: 'i',
+  withdrawal: 'j',
+};
+
+describe('boxes stored by the old app', () => {
+  it.each(cases.map((recorded, index) => [index + 1, recorded] as const))('scenario %i gives the old numbers', (_, recorded) => {
+    const graph = parseGraph(JSON.stringify(toVersion1(recorded.scenario)), names);
+    const { series } = runPass(compile(inputOf(graph), recorded.years), noNoise);
+    series.forEach((values, chart) => expectClose(picked(values), recorded.expected[chart]));
+  });
+});
 
 describe('the numbers recorded from the old engine', () => {
   it.each(cases.map((recorded, index) => [index + 1, recorded] as const))('scenario %i', (_, recorded) => {
