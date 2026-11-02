@@ -40,6 +40,14 @@ export interface Rule {
   start(world: World): (day: number) => void;
 }
 
+// Stocks read together. It moves no money, so it cannot change a result. Each line is a label in the ledger's flows.
+export interface Overview {
+  id: string;
+  name: string;
+  stocks: number[];
+  lines: { name: string; label: string }[];
+}
+
 export interface Model {
   timeline: Timeline;
   stocks: Stock[];
@@ -48,6 +56,7 @@ export interface Model {
   sampleDays: number[];
   // Indexes of the stocks that get a graph, in the order they are shown.
   charted: number[];
+  overviews: Overview[];
   // False when nothing in the model is random, so one pass says it all.
   random: boolean;
 }
@@ -60,11 +69,24 @@ export interface Ledger {
   short: Float64Array;
   // What is left of what was put in. A withdrawal counts as deposits first.
   deposits: Float64Array;
+  // Shielding from tax that has not been used against a gain yet.
+  shield: Float64Array;
   // The first regular payment from each stock.
   firstPayout: Float64Array;
   // Money per label and calendar year.
   flows: Map<string, Float64Array>;
 }
+
+// One recorded amount. A move says where it came from and went. What could not be paid names the stock that asked.
+export interface Recorded {
+  day: number;
+  from: number;
+  to: number;
+  amount: number;
+  label: string;
+}
+
+export type Observer = (recorded: Recorded) => void;
 
 export class World {
   readonly balances: Float64Array;
@@ -73,12 +95,14 @@ export class World {
   readonly noise: NoiseSource;
   day = 0;
   private readonly model: Model;
+  private readonly observe?: Observer;
   private readonly paths = new Map<string, { value: number; previous: number }>();
 
-  constructor(model: Model, noise: NoiseSource) {
+  constructor(model: Model, noise: NoiseSource, observe?: Observer) {
     const count = model.stocks.length;
     this.model = model;
     this.noise = noise;
+    this.observe = observe;
     this.balances = new Float64Array(count);
     this.isOpen = new Uint8Array(count);
     this.ledger = {
@@ -87,6 +111,7 @@ export class World {
       growth: new Float64Array(count),
       short: new Float64Array(count),
       deposits: new Float64Array(count),
+      shield: new Float64Array(count),
       firstPayout: new Float64Array(count),
       flows: new Map(),
     };
@@ -120,7 +145,7 @@ export class World {
       this.ledger.in[to] += moved;
       this.ledger.deposits[to] += moved;
     }
-    this.record(label, moved);
+    this.record(label, moved, from, to);
     return moved;
   }
 
@@ -136,7 +161,13 @@ export class World {
     if (amount > 0 && this.ledger.firstPayout[stock] === 0) this.ledger.firstPayout[stock] = amount;
   }
 
-  record(label: string, amount: number) {
+  record(label: string, amount: number, from = OUTSIDE, to = OUTSIDE) {
+    this.tally(label, amount);
+    this.observe?.({ day: this.day, from, to, amount, label });
+  }
+
+  // Adds to a flow without reporting it as something that happened, for money already recorded under another label.
+  tally(label: string, amount: number) {
     let flow = this.ledger.flows.get(label);
     if (!flow) {
       flow = new Float64Array(this.model.timeline.yearIndex(this.model.timeline.days) + 1);
@@ -153,6 +184,10 @@ export interface PassResult {
   closing: Float64Array;
   // Deposits at the last sample, measured at the same moment as the balance.
   depositsAtEnd: Float64Array;
+  // The same for shielding.
+  shieldAtEnd: Float64Array;
+  // One per overview, one value per sample. NaN until one of its stocks exists.
+  overviews: { total: Float64Array; deposits: Float64Array; shield: Float64Array }[];
 }
 
 export function orderRules(rules: Rule[]): Rule[] {
@@ -161,12 +196,18 @@ export function orderRules(rules: Rule[]): Rule[] {
   );
 }
 
-export function runPass(model: Model, noise: NoiseSource): PassResult {
+export function runPass(model: Model, noise: NoiseSource, observe?: Observer): PassResult {
   const { stocks, sampleDays, timeline, charted } = model;
-  const world = new World(model, noise);
+  const world = new World(model, noise, observe);
   const rules = model.rules.map((rule) => ({ fires: rule.fires, fire: rule.start(world) }));
   const series = charted.map(() => new Float64Array(sampleDays.length).fill(NaN));
   const depositsAtEnd = new Float64Array(stocks.length);
+  const shieldAtEnd = new Float64Array(stocks.length);
+  const overviews = model.overviews.map(() => ({
+    total: new Float64Array(sampleDays.length).fill(NaN),
+    deposits: new Float64Array(sampleDays.length).fill(NaN),
+    shield: new Float64Array(sampleDays.length).fill(NaN),
+  }));
   let nextSample = 0;
 
   for (let day = 0; day <= timeline.days; day++) {
@@ -180,12 +221,22 @@ export function runPass(model: Model, noise: NoiseSource): PassResult {
         const closed = nextSample > 0 && sampleDays[nextSample - 1] > (stocks[stock].closeDay ?? Infinity);
         if (world.isOpen[stock] && !closed) series[index][nextSample] = world.balances[stock];
       });
-      if (nextSample === sampleDays.length - 1) depositsAtEnd.set(world.ledger.deposits);
+      if (nextSample === sampleDays.length - 1) {
+        depositsAtEnd.set(world.ledger.deposits);
+        shieldAtEnd.set(world.ledger.shield);
+      }
+      model.overviews.forEach((overview, index) => {
+        const open = overview.stocks.filter((stock) => world.isOpen[stock]);
+        if (open.length === 0) return;
+        overviews[index].total[nextSample] = open.reduce((sum, stock) => sum + world.balances[stock], 0);
+        overviews[index].deposits[nextSample] = open.reduce((sum, stock) => sum + world.ledger.deposits[stock], 0);
+        overviews[index].shield[nextSample] = open.reduce((sum, stock) => sum + world.ledger.shield[stock], 0);
+      });
       nextSample++;
     }
     for (const rule of rules) {
       if (rule.fires[day]) rule.fire(day);
     }
   }
-  return { series, ledger: world.ledger, closing: world.balances, depositsAtEnd };
+  return { series, ledger: world.ledger, closing: world.balances, depositsAtEnd, shieldAtEnd, overviews };
 }

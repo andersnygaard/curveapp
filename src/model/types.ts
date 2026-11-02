@@ -7,6 +7,7 @@ import type { IncomeData } from './boxes/income';
 import type { MeData } from './boxes/me';
 import type { OtpData } from './boxes/otp';
 import type { ReturnData } from './boxes/returnBox';
+import type { SummaryData } from './boxes/summary';
 import type { TransferData } from './boxes/transfer';
 import type { WithdrawalData } from './boxes/withdrawal';
 
@@ -30,6 +31,7 @@ export type FolketrygdBox = BoxOf<'folketrygd', FolketrygdData>;
 export type WithdrawalBox = BoxOf<'withdrawal', WithdrawalData>;
 export type GBox = BoxOf<'g', GData>;
 export type MeBox = BoxOf<'me', MeData>;
+export type SummaryBox = BoxOf<'summary', SummaryData>;
 
 export type Box =
   | IncomeBox
@@ -41,7 +43,8 @@ export type Box =
   | FolketrygdBox
   | WithdrawalBox
   | GBox
-  | MeBox;
+  | MeBox
+  | SummaryBox;
 export type BoxType = Box['type'];
 export type BoxOfType<Type extends BoxType> = Extract<Box, { type: Type }>;
 
@@ -82,4 +85,5 @@ export interface DefaultNames {
   otp: string;
   folketrygd: string;
   withdrawal: string;
+  summary: string;
 }

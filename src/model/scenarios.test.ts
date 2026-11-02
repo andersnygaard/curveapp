@@ -32,7 +32,7 @@ const account = (id: string, startAmount = 0, extra: Record<string, unknown> = {
   ({
     id,
     type: 'account',
-    data: { name: id, startAmount, startDate: START, currency: 'NOK', accountType: 'regular', taxRate: 0, inflation: 0, ...extra },
+    data: { name: id, startAmount, startDate: START, currency: 'NOK', accountType: 'regular', taxRate: 0, inflation: 0, shieldRate: 0, unusedShield: 0, ...extra },
   }) as Box;
 const market = (id: string, annualReturn: number, standardDeviation: number, returnInterval = 'tradingDays'): Box =>
   ({ id, type: 'return', data: { name: id, annualReturn, returnInterval, standardDeviation } }) as Box;
@@ -748,5 +748,255 @@ describe('ASK', () => {
     const boxes = [account('a', 1_000_000, { accountType: 'ask', taxRate: 37.84, inflation: 0 })];
     const { summary } = [...simulate(compile({ boxes, wires: [] }, 5))][0];
     expect(summary.stocks[0].afterTax).toBe(1_000_000);
+  });
+});
+
+describe('skjermingsfradrag on an ASK', () => {
+  const RATE = 0.036;
+  const ask = (id: string, startAmount: number, extra: Record<string, unknown> = {}) =>
+    account(id, startAmount, { accountType: 'ask', taxRate: 37.84, shieldRate: 3.6, ...extra });
+  const shieldAtEnd = (input: SimulationInput, years: number, id = 'a') => {
+    const model = compile(input, years);
+    return runPass(model, noNoise).shieldAtEnd[model.stocks.findIndex((stock) => stock.id === id)];
+  };
+  const summary = (id: string): Box => ({ id, type: 'summary', data: { name: id } });
+
+  it('earns the rate each 31 December, on the deposits and on what is unused from before', () => {
+    const first = 1_000_000 * RATE;
+    const second = (1_000_000 + first) * RATE;
+    expect(shieldAtEnd({ boxes: [ask('a', 1_000_000)], wires: [] }, 2)).toBeCloseTo(first + second, 2);
+  });
+
+  it('has nothing before the first 31 December', () => {
+    expect(shieldAtEnd({ boxes: [ask('a', 1_000_000)], wires: [] }, 0.9)).toBe(0);
+  });
+
+  it('adds on to what was unused when the simulation started, which earns the rate too', () => {
+    const boxes = [ask('a', 1_000_000, { unusedShield: 10_000 })];
+    expect(shieldAtEnd({ boxes, wires: [] }, 1)).toBeCloseTo(10_000 + 1_010_000 * RATE, 2);
+  });
+
+  it('goes by the lowest deposit balance of the year, so a withdrawal lowers it', () => {
+    const boxes = [me(1980), ask('a', 1_000_000), withdrawal('w', 47, 10_000)];
+    // Twelve draws of 10 000 have happened by 31 December, and they all count as deposits.
+    expect(shieldAtEnd({ boxes, wires: [money('a', 'w')] }, 1)).toBeCloseTo(880_000 * RATE, 2);
+  });
+
+  it('gives a deposit no shielding for the months it was not there', () => {
+    const boxes = [income('i', 50_000), transfer('t', 10_000), ask('a', 0)];
+    const first = 10_000 * RATE;
+    // The first pay day is the first day of the period. By the next year all twelve deposits count.
+    const second = (120_000 + first) * RATE;
+    expect(shieldAtEnd({ boxes, wires: [money('i', 't'), money('t', 'a')] }, 2)).toBeCloseTo(first + second, 2);
+  });
+
+  it('loses value with inflation, since the rate and the deposits are in the kroner of the day', () => {
+    const boxes = [ask('a', 1_000_000, { inflation: 2.5 })];
+    expect(shieldAtEnd({ boxes, wires: [] }, 1)).toBeCloseTo(1_000_000 * RATE * 1.025 ** (-365 / 365.25), 2);
+  });
+
+  it('waits for an account that opens later', () => {
+    const boxes = [account('early', 100), ask('a', 1_000_000, { startDate: '2028-07-01' })];
+    expect(shieldAtEnd({ boxes, wires: [] }, 2)).toBeCloseTo(1_000_000 * RATE, 2);
+  });
+
+  describe('used against a gain', () => {
+    const drawing = (perMonth: number) => ({
+      boxes: [me(1980), ask('a', 100_000, { shieldRate: 0, unusedShield: 5_000 }), market('m', 100, 0, 'yearly'), withdrawal('w', 48, perMonth)],
+      wires: [influence('m', 'a'), money('a', 'w')],
+    });
+    // Up to the first draw on 1 January 2028, when the balance has doubled.
+    const UNTIL_AFTER_THE_FIRST_DRAW = 13 / 12;
+
+    it('is left alone while a withdrawal only takes deposits', () => {
+      expect(shieldAtEnd(drawing(50_000), UNTIL_AFTER_THE_FIRST_DRAW)).toBeCloseTo(5_000, 2);
+    });
+
+    it('is used by what goes beyond the deposits', () => {
+      expect(shieldAtEnd(drawing(102_000), UNTIL_AFTER_THE_FIRST_DRAW)).toBeCloseTo(3_000, 2);
+    });
+
+    it('cannot go below nothing', () => {
+      expect(shieldAtEnd(drawing(150_000), UNTIL_AFTER_THE_FIRST_DRAW)).toBe(0);
+    });
+  });
+
+  it('lowers the tax if everything is withdrawn, by coming off the gain', () => {
+    const input = (shieldRate: number) => ({
+      boxes: [ask('a', 1_000_000, { shieldRate }), market('m', 8, 0, 'yearly')],
+      wires: [influence('m', 'a')],
+    });
+    const stockOf = (shieldRate: number) => [...simulate(compile(input(shieldRate), 10))][0].summary.stocks[0];
+    const { lastValue, afterTax } = stockOf(3.6);
+    const shield = shieldAtEnd(input(3.6), 10);
+    expect(afterTax).toBeCloseTo(lastValue - 0.3784 * (lastValue - 1_000_000 - shield), 2);
+    expect(afterTax).toBeGreaterThan(stockOf(0).afterTax!);
+  });
+
+  it('gives no tax when the shielding is larger than the gain', () => {
+    const boxes = [ask('a', 1_000_000, { unusedShield: 5_000_000 }), market('m', 8, 0, 'yearly')];
+    const { lastValue, afterTax } = [...simulate(compile({ boxes, wires: [influence('m', 'a')] }, 5))][0].summary.stocks[0];
+    expect(afterTax).toBe(lastValue);
+  });
+
+  it('moves no money, so no balance changes', () => {
+    const input = (shieldRate: number) => ({
+      boxes: [me(1980), ask('a', 1_000_000, { shieldRate }), market('m', 5, 15), withdrawal('w', 48, 10_000)],
+      wires: [influence('m', 'a'), money('a', 'w')],
+    });
+    const without = runPass(compile(input(0), 10), passNoise(3, 1));
+    const withShield = runPass(compile(input(3.6), 10), passNoise(3, 1));
+    expect(withShield.series).toEqual(without.series);
+    expect(withShield.ledger.deposits).toEqual(without.ledger.deposits);
+    expect(withShield.ledger.flows).toEqual(without.ledger.flows);
+  });
+
+  it('only exists on an ASK', () => {
+    const boxes = [account('a', 1_000_000, { shieldRate: 3.6, unusedShield: 10_000 })];
+    expect(shieldAtEnd({ boxes, wires: [] }, 2)).toBe(0);
+  });
+
+  it('adds up in a summary, and is left out when there is none', () => {
+    const boxes = [ask('a', 1_000_000), ask('b', 500_000), account('c', 100_000), summary('s')];
+    const overviewOf = (wires: Wire[]) => [...simulate(compile({ boxes, wires }, 1))][0].summary.stocks[0].overview!;
+    const both = overviewOf([basis('a', 's'), basis('b', 's'), basis('c', 's')]);
+    expect(both.shield!.at(-1)).toBeCloseTo(1_500_000 * RATE, 2);
+    expect(overviewOf([basis('c', 's')]).shield).toBeNull();
+  });
+});
+
+describe('a summary', () => {
+  const summary = (id: string): Box => ({ id, type: 'summary', data: { name: id } });
+  const lastFrame = (input: SimulationInput, years: number) => [...simulate(compile(input, years), [20])].at(-1)!;
+  const first = (input: SimulationInput, years: number) => {
+    const stock = lastFrame(input, years).summary.stocks[0];
+    return { stock, overview: stock.overview! };
+  };
+
+  const twoPensions = () => ({
+    boxes: [
+      me(1980),
+      flatG,
+      account('fund', 0),
+      otp('o', { startAmount: 43_000 * 120, payoutAge: 47, payoutYears: 10 }),
+      folketrygd('f', 20_000 * 12 * 20, { payoutAge: 47, divisor: 20 }),
+      withdrawal('w', 47, 40_000),
+      summary('s'),
+    ],
+    wires: [money('o', 'w'), money('f', 'w'), money('fund', 'w'), money('w', 'fund'), basis('o', 's'), basis('f', 's'), basis('fund', 's')],
+  });
+
+  it('adds up the accounts wired to it', () => {
+    const boxes = [account('a', 100_000), account('b', 50_000), summary('s')];
+    const { stock, overview } = first({ boxes, wires: [basis('a', 's'), basis('b', 's')] }, 2);
+    expect(stock.id).toBe('s');
+    expect(stock.lastValue).toBe(150_000);
+    expect(Array.from(stock.median).every((value) => value === 150_000)).toBe(true);
+    expect(overview.deposits.at(-1)).toBe(150_000);
+  });
+
+  it('changes no result, since it moves no money', () => {
+    const { boxes, wires } = twoPensions();
+    const plain = compile({ boxes: boxes.filter((box) => box.type !== 'summary'), wires: wires.filter((wire) => wire.kind !== 'basis') }, 12);
+    const withSummary = compile({ boxes, wires }, 12);
+    const before = runPass(plain, passNoise(3, 1));
+    const after = runPass(withSummary, passNoise(3, 1));
+    expect(after.series).toEqual(before.series);
+    expect(after.closing).toEqual(before.closing);
+    expect(after.ledger.flows).toEqual(before.ledger.flows);
+  });
+
+  const twoMarkets = {
+    boxes: [account('a', 100_000), account('b', 50_000), market('m', 5, 15), market('n', 3, 10), summary('s')],
+    wires: [influence('m', 'a'), influence('n', 'b'), basis('a', 's'), basis('b', 's')],
+  };
+
+  it('goes first, and each pass carries its total in the same order', () => {
+    const { passes, summary: result } = lastFrame(twoMarkets, 5);
+    expect(result.stocks.map((stock) => stock.id)).toEqual(['s', 'a', 'b']);
+    for (const pass of passes) {
+      expect(pass[0].at(-1)).toBeCloseTo(pass[1].at(-1)! + pass[2].at(-1)!, 6);
+    }
+  });
+
+  it('takes the median of the sum, which is not the sum of the medians', () => {
+    const { passes, summary: result } = lastFrame(twoMarkets, 5);
+    const sums = passes.map((pass) => pass[1].at(-1)! + pass[2].at(-1)!).sort((a, b) => a - b);
+    const median = (sums[9] + sums[10]) / 2;
+    expect(result.stocks[0].median.at(-1)).toBeCloseTo(median, 6);
+    const sumOfMedians = result.stocks[1].median.at(-1)! + result.stocks[2].median.at(-1)!;
+    expect(Math.abs(median - sumOfMedians)).toBeGreaterThan(1);
+  });
+
+  it('shows the return as the gap up to what is left of what was put in, and counts withdrawals as deposits first', () => {
+    const boxes = [me(1980), account('a', 1_000_000), market('m', 10, 0), withdrawal('w', 48, 10_000), summary('s')];
+    const wires = [influence('m', 'a'), money('a', 'w'), basis('a', 's')];
+    const { stock, overview } = first({ boxes, wires }, 3);
+    expect(overview.deposits[0]).toBe(1_000_000);
+    // Two years of draws have happened at the last sample, and the balance has grown beyond what was put in.
+    expect(overview.deposits.at(-1)).toBeCloseTo(1_000_000 - 24 * 10_000, 0);
+    expect(stock.lastValue).toBeGreaterThan(overview.deposits.at(-1)!);
+    // The day the period ends is a payday as well.
+    expect(overview.withdrawn).toBeCloseTo(25 * 10_000, 0);
+  });
+
+  it('shows what each box pays in kroner a month, when each of them pays it', () => {
+    const { overview } = first(twoPensions(), 12);
+    expect(overview.lines.map((line) => line.name)).toEqual(['o', 'f', 'fund']);
+    const [o, f, fund] = overview.lines;
+    expect(o.perMonth[0]).toBeCloseTo(43_000, 0);
+    expect(f.perMonth[0]).toBeCloseTo(20_000, 0);
+    expect(fund.perMonth[0]).toBe(0);
+    // The occupational pension has stopped, and the savings cover the rest of the 40 000.
+    expect(o.perMonth[10]).toBe(0);
+    expect(f.perMonth[10]).toBeCloseTo(20_000, 0);
+    expect(fund.perMonth[10]).toBeCloseTo(20_000, 0);
+  });
+
+  it('leaves out a box that never pays, and the others keep their place', () => {
+    const boxes = [me(1980), otp('never'), account('a', 1_000_000), withdrawal('w', 47, 10_000), summary('s')];
+    const wires = [money('a', 'w'), basis('never', 's'), basis('a', 's')];
+    const { overview } = first({ boxes, wires }, 2);
+    expect(overview.lines.map(({ name, slot }) => [name, slot])).toEqual([['a', 1]]);
+  });
+
+  it('gets the level right in years the period only partly covers', () => {
+    const boxes = [me(1980), account('a', 1_000_000, { startDate: '2027-07-01' }), withdrawal('w', 47, 10_000), summary('s')];
+    const { overview } = first({ boxes, wires: [money('a', 'w'), basis('a', 's')] }, 2);
+    for (const value of overview.lines[0].perMonth) expect(value).toBeCloseTo(10_000, 0);
+  });
+
+  it('does not count a transfer between accounts as a withdrawal', () => {
+    const boxes = [account('a', 100_000), transfer('t', 1_000), account('b', 0), summary('s')];
+    const wires = [money('a', 't'), money('t', 'b'), basis('a', 's'), basis('b', 's')];
+    const { stock, overview } = first({ boxes, wires }, 2);
+    expect(overview.lines).toEqual([]);
+    expect(overview.withdrawn).toBe(0);
+    expect(stock.lastValue).toBe(100_000);
+  });
+
+  it('does not count a pension paid straight into an account, but counts one with nowhere to go', () => {
+    const pension = folketrygd('f', 2_000_000, { payoutAge: 47, divisor: 20 });
+    const saved = first({ boxes: [me(1980), flatG, account('a', 0), pension, summary('s')], wires: [money('f', 'a'), basis('f', 's')] }, 1);
+    expect(saved.overview.lines).toEqual([]);
+    const spent = first({ boxes: [me(1980), flatG, pension, summary('s')], wires: [basis('f', 's')] }, 1);
+    expect(spent.overview.lines.map((line) => line.name)).toEqual(['f']);
+  });
+
+  it('leaves Folketrygden out of the total, since it is calculated and not money', () => {
+    const pension = folketrygd('f', 2_000_000, { payoutAge: 47, divisor: 20 });
+    const both = first({ boxes: [me(1980), flatG, account('a', 100_000), pension, summary('s')], wires: [basis('a', 's'), basis('f', 's')] }, 1);
+    expect(both.stock.lastValue).toBe(100_000);
+    expect(both.overview.hasBalance).toBe(true);
+    expect(both.overview.lines.map((line) => line.name)).toEqual(['f']);
+    const alone = first({ boxes: [me(1980), flatG, pension, summary('s')], wires: [basis('f', 's')] }, 1);
+    expect(alone.overview.hasBalance).toBe(false);
+  });
+
+  it('warns while nothing is wired to it, and then shows nothing', () => {
+    const input = { boxes: [account('a', 100_000), summary('s')], wires: [] };
+    expect(diagnose(input)).toContainEqual({ boxId: 's', code: 'notConnected' });
+    expect(lastFrame(input, 1).summary.stocks.map((stock) => stock.id)).toEqual(['a']);
+    expect(diagnose({ ...input, wires: [basis('a', 's')] })).toEqual([]);
   });
 });

@@ -1,8 +1,10 @@
 // Norwegian pension rules, as plain formulas and rules on top of the general engine. All the law lives here.
 import { OUTSIDE, type Rule } from './engine';
+import { DAYS_PER_YEAR } from './timeline';
 
 export const G = 'g';
 export const G_REGULATION_DATE = { month: 4, day: 1 };
+export const SHIELD_DATE = { month: 11, day: 31 };
 
 const PENSION_RATE = 0.181;
 const PENSION_CAP_IN_G = 7.1;
@@ -119,4 +121,59 @@ export function payFolketrygd(stock: number, to: number, divisor: number, fires:
 // The real divisors are set when a birth cohort turns 61. Until then this is an estimate the user can overrule.
 export function estimatedDivisor(age: number): number {
   return Math.max(1, 85 - age);
+}
+
+interface ShieldOptions {
+  stock: number;
+  annualRate: number;
+  annualInflation: number;
+  // What is unused from before the account's first day in the simulation.
+  opening: number;
+  yearEnds: Uint8Array;
+  fires: Uint8Array;
+}
+
+// Skjermingsfradrag on an aksjesparekonto. Each 31 December the lowest deposit balance of the year and the unused
+// shielding earn the rate, and what is not used carries over. A withdrawal counts as deposits first, so only what goes
+// beyond the deposits uses it up. The rate works on the kroner of the day, while the ledger is in today's money, so
+// the shielding loses value with inflation like the deposits do. It moves no money, and only lowers the taxable gain.
+export function earnShield({ stock, annualRate, annualInflation, opening, yearEnds, fires }: ShieldOptions): Rule {
+  const dailyLoss = (1 + annualInflation) ** (-1 / DAYS_PER_YEAR);
+  return {
+    phase: 'close',
+    // Before the deposits lose the value of this day, which the same inflation takes from them right after.
+    rank: -1,
+    fires,
+    start(world) {
+      const { ledger, isOpen } = world;
+      let opened = false;
+      let priceLevel = 1;
+      let lowest = Infinity;
+      let depositsBefore = 0;
+      let inBefore = 0;
+      let outBefore = 0;
+      return (day) => {
+        if (!isOpen[stock]) return;
+        const deposits = ledger.deposits[stock];
+        if (!opened) {
+          opened = true;
+          ledger.shield[stock] = opening;
+        } else {
+          const fromDeposits = depositsBefore + ledger.in[stock] - inBefore - deposits;
+          const beyondDeposits = Math.max(0, ledger.out[stock] - outBefore - fromDeposits);
+          ledger.shield[stock] = Math.max(0, ledger.shield[stock] - beyondDeposits);
+        }
+        lowest = Math.min(lowest, deposits * priceLevel);
+        if (yearEnds[day]) {
+          ledger.shield[stock] += (lowest / priceLevel + ledger.shield[stock]) * annualRate;
+          lowest = deposits * priceLevel;
+        }
+        ledger.shield[stock] *= dailyLoss;
+        priceLevel /= dailyLoss;
+        depositsBefore = deposits * dailyLoss;
+        inBefore = ledger.in[stock];
+        outBefore = ledger.out[stock];
+      };
+    },
+  };
 }

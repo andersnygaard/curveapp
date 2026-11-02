@@ -1,9 +1,15 @@
-import { useState, type KeyboardEvent } from 'react';
+import { useState } from 'react';
 import ErrorBoundary from './components/ErrorBoundary';
-import { BritishFlag, NorwegianFlag } from './flags';
+import FileButtons from './components/FileButtons';
+import Footer from './components/Footer';
+import Header from './components/Header';
+import LanguagePicker from './components/LanguagePicker';
+import Tabs from './components/Tabs';
 import { LanguageContext, translations, useLanguage } from './i18n';
 import InputTab from './input/InputTab';
 import { useGraph, useSimulationInput } from './input/useGraph';
+import { today } from './model/dates';
+import { parseGraph, serializeGraph } from './model/storage';
 import SimulationTab from './simulation/SimulationTab';
 
 const tabs = ['simulation', 'input'] as const;
@@ -15,65 +21,48 @@ export default function App() {
   const t = translations[language];
   const { graph, setGraph, recovered } = useGraph(t.defaultNames);
   const input = useSimulationInput(graph);
+  const [filesLoaded, setFilesLoaded] = useState(0);
+  const [unreadableFile, setUnreadableFile] = useState(false);
 
-  function moveBetweenTabs(event: KeyboardEvent) {
-    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
-    const step = event.key === 'ArrowRight' ? 1 : -1;
-    const next = tabs[(tabs.indexOf(activeTab) + step + tabs.length) % tabs.length];
-    setActiveTab(next);
-    document.getElementById(`tab-${next}`)?.focus();
+  // It only asks once it knows that the file can be read, and nothing changes until the answer is yes.
+  function loadFile(text: string) {
+    try {
+      const loaded = parseGraph(text, t.defaultNames);
+      setUnreadableFile(false);
+      if (!window.confirm(t.confirmLoad)) return;
+      setGraph(loaded);
+      setFilesLoaded(filesLoaded + 1);
+    } catch {
+      setUnreadableFile(true);
+    }
   }
 
   return (
     <LanguageContext.Provider value={language}>
-      <header className="header">
-        <h1 className="wordmark">Curve</h1>
-        <div className="flags" role="group" aria-label={t.language}>
-          <button
-            type="button"
-            className="flag"
-            aria-label="Norsk"
-            aria-pressed={language === 'no'}
-            title="Norsk"
-            onClick={() => setLanguage('no')}
-          >
-            <NorwegianFlag />
-          </button>
-          <button
-            type="button"
-            className="flag"
-            aria-label="English"
-            aria-pressed={language === 'en'}
-            title="English"
-            onClick={() => setLanguage('en')}
-          >
-            <BritishFlag />
-          </button>
-        </div>
-      </header>
+      <Header>
+        <FileButtons
+          fileName={() => `curve-${today()}.json`}
+          contents={() => serializeGraph(graph)}
+          onLoad={loadFile}
+        />
+        <LanguagePicker language={language} onChange={setLanguage} />
+      </Header>
 
-      <div className="tablist" role="tablist" aria-label={t.sections} onKeyDown={moveBetweenTabs}>
-        {tabs.map((tab) => (
-          <button
-            key={tab}
-            type="button"
-            id={`tab-${tab}`}
-            className="tab"
-            role="tab"
-            aria-selected={tab === activeTab}
-            aria-controls={`panel-${tab}`}
-            tabIndex={tab === activeTab ? 0 : -1}
-            onClick={() => setActiveTab(tab)}
-          >
-            {t[tab]}
-            {tab === activeTab && (
-              <svg className="tab-curve" viewBox="0 0 100 12" preserveAspectRatio="none" aria-hidden="true">
-                <path d="M0 12C28 12 32 1.5 50 1.5S72 12 100 12" />
-              </svg>
-            )}
+      <Tabs
+        label={t.sections}
+        tabs={tabs.map((id) => ({ id, label: t[id] }))}
+        active={activeTab}
+        onChange={setActiveTab}
+      />
+
+      {unreadableFile && (
+        <p className="file-error" role="alert">
+          {t.fileUnreadable}
+          <button type="button" aria-label={t.close} onClick={() => setUnreadableFile(false)}>
+            ×
           </button>
-        ))}
-      </div>
+        </p>
+      )}
 
       <main className="main">
         <section
@@ -96,16 +85,13 @@ export default function App() {
         >
           {activeTab === 'input' && (
             <ErrorBoundary message={t.somethingWentWrong}>
-              <InputTab graph={graph} setGraph={setGraph} input={input} recovered={recovered} />
+              <InputTab key={filesLoaded} graph={graph} setGraph={setGraph} input={input} recovered={recovered && filesLoaded === 0} />
             </ErrorBoundary>
           )}
         </section>
       </main>
 
-      <footer className="footer">
-        <span>Curve</span>
-        <span>{t.privacyStatement}</span>
-      </footer>
+      <Footer />
     </LanguageContext.Provider>
   );
 }

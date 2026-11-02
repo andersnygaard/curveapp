@@ -1,5 +1,5 @@
 // What a box type has to say about itself. Each type answers this in its own file under boxes/.
-import type { Factor, Rule, Stock } from '../engine/engine';
+import type { Factor, Overview, Rule, Stock } from '../engine/engine';
 import type { Timeline } from '../engine/timeline';
 import type { Box, BoxType, DefaultNames, WireKind } from './types';
 
@@ -45,6 +45,7 @@ export interface CompileContext extends GraphQuery {
   addRule(rule: Rule): void;
   addStock(box: Box, stock: Omit<Stock, 'id'>): number;
   addFactor(factor: Factor, random: boolean): void;
+  addOverview(overview: Overview): void;
   stockOf(box: Box): number;
   markCanRunOut(stock: number): void;
   // The day an age begins, or null without a birth year. Age is the year minus the birth year.

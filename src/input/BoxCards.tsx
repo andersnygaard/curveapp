@@ -209,6 +209,8 @@ function AccountCard({ id, data }: CardProps<'account'>) {
         <>
           <NumberField label={t.taxRate} value={data.taxRate} onChange={(taxRate) => update({ taxRate })} />
           <NumberField label={t.inflation} value={data.inflation} onChange={(inflation) => update({ inflation })} />
+          <NumberField label={t.shieldRate} value={data.shieldRate} onChange={(shieldRate) => update({ shieldRate })} />
+          <NumberField label={t.unusedShield} value={data.unusedShield} onChange={(unusedShield) => update({ unusedShield })} />
         </>
       )}
     </BoxCard>
@@ -303,6 +305,17 @@ function WithdrawalCard({ id, data }: CardProps<'withdrawal'>) {
   );
 }
 
+function SummaryCard({ id, data }: CardProps<'summary'>) {
+  const t = useTranslations();
+  const update = useUpdate<'summary'>(id);
+  return (
+    <BoxCard id={id} type="summary" name={data.name}>
+      <TextField label={t.name} value={data.name} onChange={(name) => update({ name })} />
+      <p className="box-note">{t.summaryNote}</p>
+    </BoxCard>
+  );
+}
+
 function GCard({ id, data }: CardProps<'g'>) {
   const t = useTranslations();
   const update = useUpdate<'g'>(id);
@@ -349,6 +362,7 @@ export const nodeTypes = {
   otp: OtpCard,
   folketrygd: FolketrygdCard,
   withdrawal: WithdrawalCard,
+  summary: SummaryCard,
   g: GCard,
   me: MeCard,
 };

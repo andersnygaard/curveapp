@@ -15,6 +15,7 @@ function modelOf(stocks: Stock[], timeline = new Timeline(START, 730), rules: Mo
     rules,
     sampleDays: [0, 100, 200, 400, 730],
     charted: stocks.flatMap((stock, index) => (stock.hidden ? [] : [index])),
+    overviews: [],
     random: false,
   };
 }
@@ -30,6 +31,23 @@ const stock = (id: string, extra: Partial<Stock> = {}): Stock => ({
 });
 
 const count = (fires: Uint8Array) => fires.reduce((sum, value) => sum + value, 0);
+
+describe('Observing a pass', () => {
+  const fires = new Timeline(START, 730).fires({ every: 'monthly' });
+  const model = modelOf([stock('a'), stock('b')], new Timeline(START, 730), [moveBetween(0, 1, 10, fires, 'x', 0)]);
+
+  it('tells where each amount came from and went', () => {
+    const seen: unknown[] = [];
+    runPass(model, noNoise, (recorded) => seen.push(recorded));
+    expect(seen).toHaveLength(24);
+    expect(seen[0]).toEqual({ day: 0, from: 0, to: 1, amount: 10, label: 'x' });
+  });
+
+  it('changes nothing in the result', () => {
+    const watched = runPass(model, noNoise, () => {});
+    expect(watched.closing).toEqual(runPass(model, noNoise).closing);
+  });
+});
 
 describe('Timeline', () => {
   const timeline = new Timeline(START, 365);
@@ -156,9 +174,11 @@ describe('summarize', () => {
   const model: Model = { ...modelOf([stock('a', { canRunOut: true })], timeline), sampleDays: [0, 5, 10] };
   const pass = (values: number[], short = 0) => ({
     series: [Float64Array.from(values)],
-    ledger: { in: new Float64Array(1), out: new Float64Array(1), growth: new Float64Array(1), short: Float64Array.of(short), deposits: new Float64Array(1), firstPayout: new Float64Array(1), flows: new Map() },
+    ledger: { in: new Float64Array(1), out: new Float64Array(1), growth: new Float64Array(1), short: Float64Array.of(short), deposits: new Float64Array(1), shield: new Float64Array(1), firstPayout: new Float64Array(1), flows: new Map() },
     closing: new Float64Array(1),
     depositsAtEnd: new Float64Array(1),
+    shieldAtEnd: new Float64Array(1),
+    overviews: [],
   });
 
   it('takes the median of each sample and leaves exactly half on each side', () => {

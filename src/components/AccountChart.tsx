@@ -1,8 +1,9 @@
 import { useEffect, useRef } from 'react';
-import { DAY_MS, DAYS_PER_YEAR } from '../engine/timeline';
-import type { Player } from './player';
+import type { Player } from '../simulation/player';
+import { MARGIN, roundedStep, timeTicks } from './chartAxis';
 
-const MARGIN = { top: 10, right: 10, bottom: 24, left: 64 };
+const DEPOSITS_DASH = [5, 4];
+const SHIELD_DASH = [1, 4];
 const FONT = '12px "Schibsted Grotesk Variable", system-ui, sans-serif';
 
 interface Props {
@@ -13,13 +14,6 @@ interface Props {
   ageLabel: (age: number) => string;
   description: string;
   registerDraw: (draw: () => void) => () => void;
-}
-
-function roundedStep(max: number): number {
-  const rough = max / 4;
-  const magnitude = 10 ** Math.floor(Math.log10(rough));
-  const normalized = rough / magnitude;
-  return (normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10) * magnitude;
 }
 
 export default function AccountChart({ player, index, locale, birthYear, ageLabel, description, registerDraw }: Props) {
@@ -98,15 +92,9 @@ export default function AccountChart({ player, index, locale, birthYear, ageLabe
           target.fillText(compact.format(value), MARGIN.left - 8, y);
         }
 
-        const spanYears = totalDays / DAYS_PER_YEAR;
-        const tickStep = spanYears <= 6 ? 1 : spanYears <= 11 ? 2 : spanYears <= 35 ? 5 : 10;
         target.textAlign = 'center';
         target.textBaseline = 'alphabetic';
-        for (let year = new Date(startMs).getUTCFullYear() + 1; ; year++) {
-          const day = (Date.UTC(year, 0, 1) - startMs) / DAY_MS;
-          if (day > totalDays) break;
-          const tick = birthYear === null ? year : year - birthYear;
-          if (tick < 0 || tick % tickStep !== 0) continue;
+        for (const { day, tick } of timeTicks(startMs, totalDays, birthYear)) {
           target.fillText(birthYear === null ? String(tick) : ageLabel(tick), toX(day), height - 6);
         }
 
@@ -134,9 +122,23 @@ export default function AccountChart({ player, index, locale, birthYear, ageLabe
       context.strokeStyle = color('--curve');
       context.lineWidth = 1.5;
       trace(context, player.current[index], player.progress * (sampleDays.length - 1));
+      const { median, overview } = player.summary.stocks[index];
+      if (overview) {
+        context.strokeStyle = color('--muted');
+        context.setLineDash(DEPOSITS_DASH);
+        trace(context, overview.deposits);
+        if (overview.shield) {
+          context.strokeStyle = color('--series-7');
+          context.lineCap = 'round';
+          context.setLineDash(SHIELD_DASH);
+          trace(context, overview.shield);
+          context.lineCap = 'butt';
+        }
+        context.setLineDash([]);
+      }
       context.strokeStyle = color('--ink');
       context.lineWidth = 2.5;
-      trace(context, player.summary.stocks[index].median);
+      trace(context, median);
       context.restore();
     }
 

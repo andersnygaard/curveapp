@@ -130,6 +130,9 @@ export function payOutOverYears({ stock, to, payments, annualRate, fires, label 
 
 export type Need = { perMonth: number } | { yearlyShareOfAccounts: number };
 
+// The flow that says what a gate has drawn from one account.
+export const drawnFrom = (stock: number) => `drawn:${stock}`;
+
 export interface GateOptions {
   buffer: number;
   pulls: number[];
@@ -167,11 +170,15 @@ export function settleGate({ buffer, pulls, overflow, need, startDay, fires, ran
         const available = inAccounts();
         const share = available > 0 ? Math.min(1, shortfall / available) : 0;
         let drawn = 0;
-        for (const stock of pulls) drawn += world.move(stock, OUTSIDE, world.balances[stock] * share, 'spent:accounts');
+        for (const stock of pulls) {
+          const moved = world.move(stock, OUTSIDE, world.balances[stock] * share, 'spent:accounts');
+          world.tally(drawnFrom(stock), moved);
+          drawn += moved;
+        }
 
         const unmet = shortfall - drawn;
         if (unmet <= 0.005) return;
-        world.record('unmet', unmet);
+        world.record('unmet', unmet, buffer);
         world.ledger.short[buffer] += unmet;
         for (const stock of pulls) world.ledger.short[stock] += unmet;
       };

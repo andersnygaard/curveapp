@@ -1,0 +1,40 @@
+{
+  "nodes": [
+    {
+      "id": "salary",
+      "type": "income",
+      "position": { "x": 0, "y": 0 },
+      "data": { "name": "Salary", "amount": 40000, "interval": "monthly" }
+    },
+    {
+      "id": "saving",
+      "type": "transfer",
+      "position": { "x": 400, "y": 0 },
+      "data": { "name": "Savings", "amount": 4000, "interval": "monthly" }
+    },
+    {
+      "id": "fund",
+      "type": "account",
+      "position": { "x": 800, "y": 0 },
+      "data": { "name": "Fund", "startAmount": 100000, "startDate": "2027-01-01", "currency": "NOK", "annualReturn": 6, "returnInterval": "monthly", "standardDeviation": 12 }
+    },
+    {
+      "id": "occupational",
+      "type": "otp",
+      "position": { "x": 400, "y": 400 },
+      "data": { "name": "OTP", "startAmount": 200000, "startDate": "2027-01-01", "lowRate": 5, "highRate": 8, "annualReturn": 4, "returnInterval": "yearly", "standardDeviation": 8 }
+    },
+    {
+      "id": "national",
+      "type": "pension",
+      "position": { "x": 400, "y": 800 },
+      "data": { "name": "National pension", "startAmount": 1000000, "startDate": "2027-01-01", "g": 130000, "gGrowth": 1, "standardDeviation": 1 }
+    }
+  ],
+  "edges": [
+    { "source": "salary", "target": "saving" },
+    { "source": "saving", "target": "fund" },
+    { "source": "salary", "target": "occupational" },
+    { "source": "salary", "target": "national" }
+  ]
+}
