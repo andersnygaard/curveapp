@@ -5,9 +5,9 @@ import type { Timeline } from './timeline';
 // Money coming into or leaving the model.
 export const OUTSIDE = -1;
 
-// The order of a day. Earlier phases decide what later ones see.
-export type Phase = 'factors' | 'adjust' | 'growth' | 'money' | 'settle';
-const PHASES: Phase[] = ['factors', 'adjust', 'growth', 'money', 'settle'];
+// The order of a day. Money arrives before anything is drawn, so the order of the boxes on the canvas never matters.
+export type Phase = 'factors' | 'adjust' | 'growth' | 'income' | 'payout' | 'draw' | 'close';
+const PHASES: Phase[] = ['factors', 'adjust', 'growth', 'income', 'payout', 'draw', 'close'];
 
 export interface Stock {
   id: string;
@@ -23,8 +23,6 @@ export interface Stock {
   // A rule draws from it and can ask for more than there is.
   canRunOut?: boolean;
   taxOnGain?: number;
-  // Day and ledger label of its regular payout, which the summary reports per year.
-  payout?: { fromDay: number; label: string };
 }
 
 export interface Factor {
@@ -35,6 +33,8 @@ export interface Factor {
 
 export interface Rule {
   phase: Phase;
+  // Within a phase, lower ranks go first. A rule that draws from an account runs after the rules that fill it.
+  rank?: number;
   fires: Uint8Array;
   // Called once per pass, so a rule can keep its own state in the closure.
   start(world: World): (day: number) => void;
@@ -60,6 +60,8 @@ export interface Ledger {
   short: Float64Array;
   // What is left of what was put in. A withdrawal counts as deposits first.
   deposits: Float64Array;
+  // The first regular payment from each stock.
+  firstPayout: Float64Array;
   // Money per label and calendar year.
   flows: Map<string, Float64Array>;
 }
@@ -85,6 +87,7 @@ export class World {
       growth: new Float64Array(count),
       short: new Float64Array(count),
       deposits: new Float64Array(count),
+      firstPayout: new Float64Array(count),
       flows: new Map(),
     };
     for (const { id, value, previous } of model.factors) this.paths.set(id, { value, previous });
@@ -121,10 +124,16 @@ export class World {
     return moved;
   }
 
-  // Value that changes without moving money: returns and the regulation of a calculated balance.
+  // Value that changes without moving money: returns and the regulation of a calculated balance. A loss can take
+  // a balance to 0 and no further.
   grow(stock: number, amount: number) {
-    this.balances[stock] += amount;
-    this.ledger.growth[stock] += amount;
+    const applied = Math.max(amount, -this.balances[stock]);
+    this.balances[stock] += applied;
+    this.ledger.growth[stock] += applied;
+  }
+
+  notePayout(stock: number, amount: number) {
+    if (amount > 0 && this.ledger.firstPayout[stock] === 0) this.ledger.firstPayout[stock] = amount;
   }
 
   record(label: string, amount: number) {
@@ -147,7 +156,9 @@ export interface PassResult {
 }
 
 export function orderRules(rules: Rule[]): Rule[] {
-  return PHASES.flatMap((phase) => rules.filter((rule) => rule.phase === phase));
+  return PHASES.flatMap((phase) =>
+    rules.filter((rule) => rule.phase === phase).sort((a, b) => (a.rank ?? 0) - (b.rank ?? 0)),
+  );
 }
 
 export function runPass(model: Model, noise: NoiseSource): PassResult {
@@ -165,7 +176,8 @@ export function runPass(model: Model, noise: NoiseSource): PassResult {
     }
     if (sampleDays[nextSample] === day) {
       charted.forEach((stock, index) => {
-        const closed = day > (stocks[stock].closeDay ?? Infinity);
+        // The line goes one sample past the close, so it ends on the balance the stock closed with.
+        const closed = nextSample > 0 && sampleDays[nextSample - 1] > (stocks[stock].closeDay ?? Infinity);
         if (world.isOpen[stock] && !closed) series[index][nextSample] = world.balances[stock];
       });
       if (nextSample === sampleDays.length - 1) depositsAtEnd.set(world.ledger.deposits);

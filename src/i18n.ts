@@ -130,6 +130,7 @@ export const translations = {
     noAccounts: 'Add an account in the Input tab to start the simulation.',
     calculating: 'Calculating…',
     simulationFailed: 'The simulation stopped because of an error.',
+    somethingWentWrong: 'Something went wrong on this page. Your boxes are still saved in this browser. Try reloading the page.',
     simulationPeriod: 'Simulation period',
     yearsOption: (years: number) => `${years} years`,
     passNumber: (pass: number) => `Pass ${pass}`,
@@ -153,6 +154,8 @@ export const translations = {
       needsPayoutAge: 'Needs an age to be paid out from.',
       restGoesOnlyOnce: 'What is left of a payment can only go one way, so only the first connector gets it.',
       nothingToDraw: 'Connect the accounts and pensions it should draw from.',
+      surplusIsSpent: 'Pension beyond the need counts as spent. Connect an account if it should be saved.',
+      sameAccount: 'Goes back to the account it came from, so it has no effect.',
     } satisfies Record<DiagnosticCode, string>,
   },
   no: {
@@ -249,6 +252,7 @@ export const translations = {
     noAccounts: 'Legg til en konto i Inndata-fanen for å starte simuleringen.',
     calculating: 'Regner ut…',
     simulationFailed: 'Simuleringen stoppet på grunn av en feil.',
+    somethingWentWrong: 'Noe gikk galt på denne siden. Boksene dine er fortsatt lagret i denne nettleseren. Prøv å laste siden på nytt.',
     simulationPeriod: 'Simuleringsperiode',
     yearsOption: (years: number) => `${years} år`,
     passNumber: (pass: number) => `Pass ${pass}`,
@@ -272,6 +276,8 @@ export const translations = {
       needsPayoutAge: 'Trenger en alder å utbetale fra.',
       restGoesOnlyOnce: 'Det som er igjen av en utbetaling kan bare gå ett sted, så bare den første connectoren får det.',
       nothingToDraw: 'Koble til kontoene og pensjonene den skal ta fra.',
+      surplusIsSpent: 'Pensjon utover behovet regnes som brukt. Koble til en konto hvis det skal spares.',
+      sameAccount: 'Går tilbake til kontoen det kom fra, så det har ingen effekt.',
     } satisfies Record<DiagnosticCode, string>,
   },
 };

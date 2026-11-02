@@ -60,7 +60,9 @@ export function fromVersion1({ nodes, edges }: Version1): { boxes: PlacedBox[]; 
   const older = known.find((node) => node.type === 'pension' && node.data && 'g' in node.data);
   if (older && !known.some((node) => node.type === 'g')) {
     const { g, gGrowth, standardDeviation } = older.data!;
-    boxes.push({ id: 'g', type: 'g', position: { x: 0, y: -240 }, data: { g, gGrowth, standardDeviation } });
+    // Missing fields are left out, so that the next step fills them in.
+    const data = JSON.parse(JSON.stringify({ g, gGrowth, standardDeviation }));
+    boxes.push({ id: 'g', type: 'g', position: { x: 0, y: -240 }, data });
   }
 
   const typeOf = (id: string) => (boxes as PlacedBox[]).find((box) => box.id === id)?.type;

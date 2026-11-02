@@ -23,7 +23,9 @@
 - Alle beløp er i dagens kroner, og avkastning og G-vekst er reelle, altså utover prisveksten. Da er et fast beløp automatisk inflasjonsjustert. Unntaket er skatt på ASK, som regnes av nominell gevinst.
 - Den tykke streken er den ekte medianen av alle passene, opptil 2 000. De kommer i par med motsatte tilfeldige tall, så medianen settler raskt. Den første utgaven kommer etter 200 pass og blir skarpere etter hvert. Y-aksen settes av den første og ligger fast.
 - Tilfeldighetene er faste for hver markedsboks. Samme oppsett gir samme tall hver gang, og endrer du noe annet enn markedet, følger passene samme marked som før. Forskjellen du ser kommer da av endringen.
-- All pengeflyt går gjennom ett sted (`World.move`), så regnskapet alltid går opp. En konto kan ikke gå under 0, og det som ikke kunne betales telles. Andelen som holder er pass der ingenting manglet.
+- All pengeflyt går gjennom ett sted (`World.move`), så regnskapet alltid går opp. En konto kan ikke gå under 0, og det som ikke kunne betales telles. Andelen som holder er pass der ingenting manglet, og den rundes ned, så 100 % betyr at alle passene holdt.
+- Penger er framme før noe trekkes samme dag, og det som trekker fra en konto går etter det som fyller den. Rekkefølgen boksene ble laget i betyr derfor ingenting.
+- Alder regnes som årstall minus fødselsår, og en halv betyr 1. juli, så en alder kan oppgis på måneden.
 - En konto finnes ikke før startdatoen, så grafen starter der.
 
 ### Bokstypene i simuleringen

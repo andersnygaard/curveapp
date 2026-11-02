@@ -116,20 +116,32 @@ describe('World.move', () => {
   });
 });
 
+describe('World.grow', () => {
+  it('can take a balance to 0 and no further', () => {
+    const w = new World(modelOf([stock('a')]), noNoise);
+    w.open(0);
+    w.grow(0, -5000);
+    expect(w.balances[0]).toBe(0);
+    expect(w.ledger.growth[0]).toBe(-1000);
+  });
+});
+
 describe('runPass', () => {
   it('leaves a stock out before it opens and after it closes', () => {
     const model = modelOf([stock('a', { openDay: 150, closeDay: 300 })]);
     const series = runPass(model, noNoise).series[0];
     expect(Number.isNaN(series[1])).toBe(true);
     expect(series[2]).toBe(1000);
-    expect(Number.isNaN(series[3])).toBe(true);
+    // One sample past the close, so the line ends on the closing balance.
+    expect(series[3]).toBe(1000);
+    expect(Number.isNaN(series[4])).toBe(true);
   });
 
   it('shows no money in an account before it starts, however much is sent to it', () => {
     const timeline = new Timeline(START, 730);
     const fires = timeline.fires({ every: 'monthly' });
     const model = modelOf([stock('a', { opening: 1000 }), stock('b', { opening: 0, openDay: 150 })], timeline, [
-      moveBetween(0, 1, 100, fires, 'x'),
+      moveBetween(0, 1, 100, fires, 'x', 0),
     ]);
     const [a, b] = runPass(model, noNoise).series;
     expect(Number.isNaN(b[1])).toBe(true);
@@ -144,7 +156,7 @@ describe('summarize', () => {
   const model: Model = { ...modelOf([stock('a', { canRunOut: true })], timeline), sampleDays: [0, 5, 10] };
   const pass = (values: number[], short = 0) => ({
     series: [Float64Array.from(values)],
-    ledger: { in: new Float64Array(1), out: new Float64Array(1), growth: new Float64Array(1), short: Float64Array.of(short), deposits: new Float64Array(1), flows: new Map() },
+    ledger: { in: new Float64Array(1), out: new Float64Array(1), growth: new Float64Array(1), short: Float64Array.of(short), deposits: new Float64Array(1), firstPayout: new Float64Array(1), flows: new Map() },
     closing: new Float64Array(1),
     depositsAtEnd: new Float64Array(1),
   });

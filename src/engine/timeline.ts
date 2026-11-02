@@ -45,7 +45,11 @@ export class Timeline {
   }
 
   dayOf(date: string): number {
-    return Math.round((Date.parse(date) - this.startMs) / DAY_MS);
+    return this.dayOfMs(Date.parse(date));
+  }
+
+  dayOfMs(ms: number): number {
+    return Math.round((ms - this.startMs) / DAY_MS);
   }
 
   dateOf(day: number): Date {

@@ -79,26 +79,23 @@ function lastFinite(series: Float64Array): number {
   return 0;
 }
 
-function medianPayout(model: Model, results: PassResult[], stock: number): number | null {
-  const { payout } = model.stocks[stock];
-  if (!payout) return null;
-  // The first whole calendar year of payments.
-  const year = model.timeline.yearIndex(Math.max(0, payout.fromDay)) + 1;
-  const paid = Float64Array.from(results, (result) => result.ledger.flows.get(payout.label)?.[year] ?? NaN);
-  const value = medianOf(paid);
-  return Number.isNaN(value) ? null : value;
+// The first monthly payment as a yearly amount, so it says the same however the calendar years fall.
+function medianPayout(results: PassResult[], stock: number): number | null {
+  const value = medianOf(Float64Array.from(results, (result) => result.ledger.firstPayout[stock]));
+  return value > 0 ? value * 12 : null;
 }
 
 function medianAfterTax(model: Model, results: PassResult[], stock: number, chart: number): number | null {
   const { taxOnGain } = model.stocks[stock];
   if (taxOnGain === undefined) return null;
   const last = model.sampleDays.length - 1;
-  return medianOf(
+  const value = medianOf(
     Float64Array.from(results, (result) => {
-      const value = result.series[chart][last];
-      return value - taxOnGain * Math.max(0, value - result.depositsAtEnd[stock]);
+      const end = result.series[chart][last];
+      return end - taxOnGain * Math.max(0, end - result.depositsAtEnd[stock]);
     }),
   );
+  return Number.isNaN(value) ? null : value;
 }
 
 // The scale is kept from the first summary, so the graph does not jump while the median settles.
@@ -118,7 +115,7 @@ export function summarize(model: Model, results: PassResult[], earlier?: Summary
       closeDay: closeDay ?? null,
       heldShare: canRunOut ? shareHeld(results, stock) : null,
       afterTax: medianAfterTax(model, results, stock, chart),
-      payoutPerYear: medianPayout(model, results, stock),
+      payoutPerYear: medianPayout(results, stock),
     };
   });
   const gates = model.stocks.flatMap((stock, index): GateSummary[] =>

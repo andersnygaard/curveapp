@@ -23,7 +23,9 @@ export type DiagnosticCode =
   | 'needsBirthYear'
   | 'needsPayoutAge'
   | 'restGoesOnlyOnce'
-  | 'nothingToDraw';
+  | 'nothingToDraw'
+  | 'surplusIsSpent'
+  | 'sameAccount';
 
 export interface Diagnostic {
   boxId: string;

@@ -333,6 +333,29 @@ describe('withdrawal', () => {
     closeTo(end('a'), 1_000_000 + 12 * 10_000);
   });
 
+  it('works as a ceiling over two pensions: the surplus saves up, and it draws on the savings when one pension ends', () => {
+    const boxes = [
+      me(1980),
+      flatG,
+      account('fund', 0),
+      otp('o', { startAmount: 43_000 * 120, payoutAge: 47, payoutYears: 10 }),
+      folketrygd('f', 20_000 * 12 * 20, { payoutAge: 47, divisor: 20 }),
+      withdrawal('w', 47, 40_000),
+    ];
+    const wires = [money('o', 'w'), money('f', 'w'), money('fund', 'w'), money('w', 'fund')];
+    const { end, pass } = run({ boxes, wires }, 12);
+    const spentFromPension = pass.ledger.flows.get('spent:pension')!;
+    const spentFromAccounts = pass.ledger.flows.get('spent:accounts')!;
+    // Ten years with 63 000 against a need of 40 000.
+    expect(spentFromPension[0]).toBeCloseTo(40_000 * 12, 2);
+    expect(pass.ledger.flows.get('surplus')![0]).toBeCloseTo(23_000 * 12, 2);
+    expect(spentFromAccounts[0]).toBe(0);
+    // Then one pension of 20 000, and the rest of the 40 000 from the savings.
+    expect(spentFromPension[10]).toBeCloseTo(20_000 * 12, 2);
+    expect(spentFromAccounts[10]).toBeCloseTo(20_000 * 12, 2);
+    closeTo(end('fund'), 23_000 * 120 - 20_000 * 24, 0.01);
+  });
+
   it('draws from several accounts by size', () => {
     const { end } = run(
       { boxes: [me(1980), account('a', 750_000), account('b', 250_000), withdrawal('w', 47, 1_000)], wires: [money('a', 'w'), money('b', 'w')] },
@@ -374,6 +397,182 @@ describe('withdrawal', () => {
     const input = { boxes: [me(0), account('a', 100_000), withdrawal('w', 47, NEED)], wires: [money('a', 'w')] };
     expect(diagnose(input)).toContainEqual({ boxId: 'w', code: 'needsBirthYear' });
     expect(run(input, 1).end('a')).toBe(100_000);
+  });
+});
+
+describe('ages given to the month', () => {
+  it('stops income in the middle of a year', () => {
+    const { end } = run({ boxes: [me(1980, 49.5), income('i', 10_000), account('a')], wires: [money('i', 'a')] }, 5);
+    // January 2027 to June 2029.
+    expect(end('a')).toBe(30 * 10_000);
+  });
+
+  it('keeps OTP and Folketrygden whole when work stops in the middle of a year', () => {
+    const { end } = run(
+      { boxes: [me(1980, 49.5), flatG, income('i', 30_000, { pensionBasis: 600_000 }), otp('o'), folketrygd('f', 0)], wires: [basis('i', 'o'), basis('i', 'f')] },
+      5,
+    );
+    closeTo(end('o'), 30 * (30_000 / 12), 1);
+    expect(end('f')).toBeGreaterThan(0);
+  });
+
+  it('starts a withdrawal in the middle of a year', () => {
+    const { end } = run({ boxes: [me(1980), account('a', 100_000), withdrawal('w', 47.5, 1_000)], wires: [money('a', 'w')] }, 1);
+    // July to December 2027.
+    expect(end('a')).toBe(100_000 - 6 * 1_000);
+  });
+
+  it('starts a payout in the middle of a year', () => {
+    const { end } = run({ boxes: [me(1980), otp('o', { startAmount: 120_000, payoutAge: 47.5, payoutYears: 1 }), account('a')], wires: [money('o', 'a')] }, 1);
+    expect(end('a')).toBe(6 * 10_000);
+  });
+});
+
+describe('the amount paid out a year', () => {
+  const summaryOf = (input: SimulationInput, years: number) => [...simulate(compile(input, years), [2])][0].summary.stocks;
+
+  it('is right for a payout that is over within a year', () => {
+    const stocks = summaryOf({ boxes: [me(1980), otp('o', { startAmount: 1_200_000, payoutAge: 47, payoutYears: 1 })], wires: [] }, 3);
+    closeTo(stocks[0].payoutPerYear!, 1_200_000, 0.01);
+  });
+
+  it('is right however the calendar years and the end of the period fall', () => {
+    const boxes = [me(1980), flatG, folketrygd('f', 2_400_000, { payoutAge: 51, divisor: 20, startDate: '2026-11-02' })];
+    closeTo(summaryOf({ boxes, wires: [] }, 5)[0].payoutPerYear!, 120_000, 0.01);
+  });
+
+  it('is left out when the payout lies beyond the period', () => {
+    const boxes = [me(1980), otp('o', { startAmount: 100, payoutAge: 90, payoutYears: 1 })];
+    expect(summaryOf({ boxes, wires: [] }, 3)[0].payoutPerYear).toBeNull();
+  });
+});
+
+describe('the order of the boxes on the canvas', () => {
+  const boxes = [income('i', 10_000), account('a'), transfer('t', 5_000), account('b')];
+  const wires = [money('i', 'a'), money('a', 't'), money('t', 'b')];
+  const outcome = (order: Box[]) => {
+    const model = compile({ boxes: order, wires }, 2);
+    const { summary } = [...simulate(model)][0];
+    const stockB = summary.stocks.find((stock) => stock.id === 'b')!;
+    return { held: summary.stocks.find((stock) => stock.id === 'a')!.heldShare, b: stockB.lastValue };
+  };
+
+  it('does not change the result: income arrives before anything is drawn', () => {
+    expect(outcome(boxes)).toEqual({ held: 1, b: 120_000 });
+    expect(outcome([...boxes].reverse())).toEqual({ held: 1, b: 120_000 });
+  });
+
+  it('does not change a chain of accounts', () => {
+    const chain = [income('i', 10_000), account('a'), transfer('t1', 5_000), account('b'), transfer('t2', 2_000), account('c')];
+    const chainWires = [money('i', 'a'), money('a', 't1'), money('t1', 'b'), money('b', 't2'), money('t2', 'c')];
+    const result = (order: Box[]) => {
+      const { summary } = [...simulate(compile({ boxes: order, wires: chainWires }, 1))][0];
+      return summary.stocks.map((stock) => [stock.id, stock.lastValue, stock.heldShare]).sort();
+    };
+    expect(result([...chain].reverse())).toEqual(result(chain));
+    expect(result(chain).find(([id]) => id === 'b')![2]).toBe(1);
+  });
+
+  it('lets a withdrawal see this month\'s surplus from another withdrawal', () => {
+    const list = [me(1980), flatG, account('fund'), folketrygd('f', 480_000, { payoutAge: 47, divisor: 20 }), withdrawal('first', 47, 1_000), withdrawal('second', 47, 500)];
+    const links = [money('f', 'first'), money('first', 'fund'), money('fund', 'second')];
+    const held = (order: Box[]) => [...simulate(compile({ boxes: order, wires: links }, 1))][0].summary.gates.map((gate) => gate.heldShare);
+    expect(held(list)).toEqual([1, 1]);
+    expect(held([...list].reverse())).toEqual([1, 1]);
+  });
+});
+
+describe('a pension that starts before the simulation', () => {
+  it('pays from when the balance exists, and does not lock at 0', () => {
+    const boxes = [me(1960), flatG, account('a', 0, { startDate: '2026-01-15' }), folketrygd('f', 2_000_000, { payoutAge: 66, divisor: 20, startDate: '2026-11-02' })];
+    const { pass } = run({ boxes, wires: [money('f', 'a')] }, 2);
+    expect(pass.ledger.flows.get('payout:f')![1]).toBeCloseTo(100_000, 6);
+  });
+
+  it('shows the balance it has, and not 0', () => {
+    const boxes = [me(1955), flatG, folketrygd('f', 2_000_000, { payoutAge: 67, divisor: 20 })];
+    const { summary } = [...simulate(compile({ boxes, wires: [] }, 3))][0];
+    expect(summary.stocks[0].lastValue).toBe(2_000_000);
+    closeTo(summary.stocks[0].payoutPerYear!, 100_000, 0.01);
+  });
+
+  it('counts OTP from the age it began, so only the rest of the term remains', () => {
+    const boxes = [me(1955), otp('o', { startAmount: 1_200_000, payoutAge: 67, payoutYears: 10 })];
+    const { summary } = [...simulate(compile({ boxes, wires: [] }, 6))][0];
+    closeTo(summary.stocks[0].payoutPerYear!, 240_000, 0.01);
+    expect(summary.stocks[0].lastValue).toBeLessThan(0.01);
+  });
+
+  it('pays out at once what remains after a term that is already over', () => {
+    const boxes = [me(1950), otp('o', { startAmount: 500_000, payoutAge: 65, payoutYears: 10 }), account('a')];
+    expect(run({ boxes, wires: [money('o', 'a')] }, 1).end('a')).toBe(500_000);
+  });
+});
+
+describe('a withdrawal set as a share of accounts that have not opened', () => {
+  it('waits for the money instead of locking at 0', () => {
+    const boxes = [me(1980), account('early', 0), account('a', 1_200_000, { startDate: '2030-01-01' }), withdrawal('w', 47, 0, { mode: 'percent', percent: 4 })];
+    const { pass } = run({ boxes, wires: [money('a', 'w')] }, 5);
+    expect(pass.ledger.flows.get('spent:accounts')![3]).toBe(12 * 4_000);
+  });
+});
+
+describe('what warns', () => {
+  it('warns that pension beyond the need is spent when nothing is wired on', () => {
+    const boxes = [me(1980), flatG, folketrygd('f', 1_000_000, { payoutAge: 47 }), withdrawal('w', 49, 1_000)];
+    expect(diagnose({ boxes, wires: [money('f', 'w')] })).toEqual([{ boxId: 'w', code: 'surplusIsSpent' }]);
+    const withAccount = { boxes: [...boxes, account('a')], wires: [money('f', 'w'), money('w', 'a')] };
+    expect(diagnose(withAccount)).toEqual([]);
+  });
+
+  it('gives a transfer back to the same account no effect, and says so', () => {
+    const input = {
+      boxes: [account('a', 100_000, { accountType: 'ask', taxRate: 30, inflation: 0 }), transfer('t', 10_000), market('m', 4, 0)],
+      wires: [money('a', 't'), money('t', 'a'), influence('m', 'a')],
+    };
+    expect(diagnose(input)).toEqual([{ boxId: 't', code: 'sameAccount' }]);
+    const { summary } = [...simulate(compile(input, 3))][0];
+    const without = { boxes: [input.boxes[0], input.boxes[2]], wires: [influence('m', 'a')] };
+    const { summary: alone } = [...simulate(compile(without, 3))][0];
+    expect(summary.stocks[0].afterTax).toBeCloseTo(alone.stocks[0].afterTax!, 6);
+  });
+});
+
+describe('Folketrygden when work and pension meet', () => {
+  const balance = (retirementAge: number, payoutAge: number, start = START) => {
+    const boxes = [me(1980, retirementAge), flatG, income('i', 30_000, { pensionBasis: 600_000 }), folketrygd('f', 0, { payoutAge, divisor: 20, startDate: start })];
+    const { summary } = [...simulate(compile({ boxes, wires: [basis('i', 'f')] }, 8))][0];
+    return summary.stocks[0];
+  };
+
+  it('keeps the last year of earnings, whether the pension starts at once or a year later', () => {
+    closeTo(balance(50, 50).lastValue, 4 * 108_600);
+    closeTo(balance(50, 51).lastValue, 4 * 108_600);
+  });
+
+  it('shows the same balance as the pension is worked out from', () => {
+    const stock = balance(50, 50);
+    closeTo(stock.lastValue / 20, stock.payoutPerYear!, 0.01);
+  });
+
+  it('adds the year before the start also when work stopped on the start date', () => {
+    closeTo(balance(50, 52, '2030-01-01').lastValue, 108_600);
+  });
+});
+
+describe('losses', () => {
+  it('cannot take a drained account below 0', () => {
+    const boxes = [account('a', 100_000), market('m', -10, 0, 'yearly'), transfer('t', 20_000), account('b')];
+    const { end } = run({ boxes, wires: [influence('m', 'a'), money('a', 't'), money('t', 'b')] }, 2);
+    expect(end('a')).toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe('an account that opens after the period', () => {
+  it('has no after-tax figure instead of NaN', () => {
+    const boxes = [account('early'), account('late', 100, { startDate: '2090-01-01', accountType: 'ask', taxRate: 30, inflation: 0 })];
+    const { summary } = [...simulate(compile({ boxes, wires: [] }, 3))][0];
+    expect(summary.stocks[1].afterTax).toBeNull();
   });
 });
 

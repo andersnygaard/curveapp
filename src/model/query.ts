@@ -13,6 +13,16 @@ export function assumptionsOf(boxes: Box[]): Assumptions {
   };
 }
 
+// What draws from an account goes after what fills it, so a chain of accounts works the same however it was drawn.
+export function drawRank(box: Box, query: GraphQuery, seen: string[] = []): number {
+  if (seen.includes(box.id)) return 0;
+  const accounts = query.into(box, 'money').filter((source) => source.type === 'account');
+  const feeders = accounts
+    .flatMap((account) => query.into(account, 'money'))
+    .filter((feeder) => feeder.type === 'transfer' || feeder.type === 'withdrawal');
+  return feeders.reduce((rank, feeder) => Math.max(rank, 1 + drawRank(feeder, query, [...seen, box.id])), 0);
+}
+
 export function queryOf({ boxes, wires }: SimulationInput): GraphQuery {
   const byId = new Map(boxes.map((box) => [box.id, box]));
   const into = (box: Box, kind: WireKind) =>

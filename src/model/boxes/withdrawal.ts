@@ -2,6 +2,7 @@ import { OUTSIDE } from '../../engine/engine';
 import { settleGate, type Need } from '../../engine/rules';
 import type { BoxSpec, DiagnosticCode } from '../spec';
 import { MANY } from '../spec';
+import { drawRank } from '../query';
 import type { WithdrawalBox } from '../types';
 
 export type WithdrawalData = {
@@ -53,13 +54,17 @@ export const withdrawalSpec: BoxSpec<WithdrawalBox> = {
         need: needOf(gate),
         startDay,
         fires: context.timeline.fires({ every: 'monthly' }),
+        rank: drawRank(gate, context),
       }),
     );
   },
   check(gate, query) {
     const codes: DiagnosticCode[] = [];
     if (query.assumptions.birthYear === null) codes.push('needsBirthYear');
-    if (query.into(gate, 'money').length === 0) codes.push('nothingToDraw');
+    const sources = query.into(gate, 'money');
+    if (sources.length === 0) codes.push('nothingToDraw');
+    const takesPension = sources.some((source) => source.type !== 'account');
+    if (takesPension && query.outOf(gate, 'money').length === 0) codes.push('surplusIsSpent');
     return codes;
   },
 };

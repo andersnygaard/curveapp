@@ -1,6 +1,7 @@
 import { moveBetween } from '../../engine/rules';
 import type { Interval } from '../../engine/timeline';
 import type { BoxSpec, DiagnosticCode } from '../spec';
+import { drawRank } from '../query';
 import type { Box, TransferBox } from '../types';
 
 export type TransferData = {
@@ -19,16 +20,17 @@ export const transferSpec: BoxSpec<TransferBox> = {
   build(transfer, context) {
     const source = context.into(transfer, 'money')[0];
     const target = context.outOf(transfer, 'money')[0];
-    if (!source || !target || !drawsFromAccount(source)) return;
+    if (!source || !target || !drawsFromAccount(source) || source === target) return;
     const from = context.stockOf(source);
     const fires = context.timeline.fires({ every: transfer.data.interval });
     context.markCanRunOut(from);
-    context.addRule(
-      moveBetween(from, context.stockOf(target), Math.max(0, transfer.data.amount), fires, transfer.data.name),
-    );
+    const amount = Math.max(0, transfer.data.amount);
+    context.addRule(moveBetween(from, context.stockOf(target), amount, fires, transfer.data.name, drawRank(transfer, context)));
   },
   check(transfer, query): DiagnosticCode[] {
-    const connected = query.into(transfer, 'money').length > 0 && query.outOf(transfer, 'money').length > 0;
-    return connected ? [] : ['notConnected'];
+    const source = query.into(transfer, 'money')[0];
+    const target = query.outOf(transfer, 'money')[0];
+    if (!source || !target) return ['notConnected'];
+    return source === target ? ['sameAccount'] : [];
   },
 };

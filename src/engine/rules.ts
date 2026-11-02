@@ -64,7 +64,7 @@ export interface Route {
 export function payIncome(amount: number, routes: Route[], fires: Uint8Array): Rule {
   const ordered = [...routes].sort((a, b) => Number(a.amount === undefined) - Number(b.amount === undefined));
   return {
-    phase: 'money',
+    phase: 'income',
     fires,
     start(world) {
       return (day) => {
@@ -78,9 +78,17 @@ export function payIncome(amount: number, routes: Route[], fires: Uint8Array): R
   };
 }
 
-export function moveBetween(from: number, to: number, amount: number, fires: Uint8Array, label: string): Rule {
+export function moveBetween(
+  from: number,
+  to: number,
+  amount: number,
+  fires: Uint8Array,
+  label: string,
+  rank: number,
+): Rule {
   return {
-    phase: 'money',
+    phase: 'draw',
+    rank,
     fires,
     start: (world) => () => {
       world.move(from, to, amount, label);
@@ -91,7 +99,8 @@ export function moveBetween(from: number, to: number, amount: number, fires: Uin
 export interface PayoutOptions {
   stock: number;
   to: number;
-  years: number;
+  // The monthly payments that are left. Whatever is there goes out at once when none are.
+  payments: number;
   annualRate: number;
   fires: Uint8Array;
   label: string;
@@ -99,20 +108,20 @@ export interface PayoutOptions {
 
 // The amount is worked out once a year from what is left, so it follows the market and the account empties
 // at the end, whatever the market did. Whatever comes in after that, such as return earned before, is passed on.
-export function payOutOverYears({ stock, to, years, annualRate, fires, label }: PayoutOptions): Rule {
+export function payOutOverYears({ stock, to, payments, annualRate, fires, label }: PayoutOptions): Rule {
   const rate = (1 + annualRate) ** (1 / 12) - 1;
   const perMonthOf = (balance: number, months: number) =>
     rate === 0 ? balance / months : (balance * rate) / (1 - (1 + rate) ** -months);
   return {
-    phase: 'money',
+    phase: 'payout',
     fires,
     start(world) {
-      let left = Math.round(years * 12);
+      let left = payments;
       let perMonth = 0;
       return () => {
         const balance = world.balances[stock];
         if (left > 1 && (left % 12 === 0 || perMonth === 0)) perMonth = perMonthOf(balance, left);
-        world.move(stock, to, left > 1 ? Math.min(perMonth, balance) : balance, label);
+        world.notePayout(stock, world.move(stock, to, left > 1 ? Math.min(perMonth, balance) : balance, label));
         left--;
       };
     },
@@ -128,20 +137,24 @@ export interface GateOptions {
   need: Need;
   startDay: number;
   fires: Uint8Array;
+  rank: number;
 }
 
 // What the gate received counts first. Any surplus flows on, and any shortfall is drawn from the accounts by
 // size. Before the start day there is no need, so pension paid early flows straight on.
-export function settleGate({ buffer, pulls, overflow, need, startDay, fires }: GateOptions): Rule {
+export function settleGate({ buffer, pulls, overflow, need, startDay, fires, rank }: GateOptions): Rule {
   return {
-    phase: 'settle',
+    phase: 'draw',
+    rank,
     fires,
     start(world) {
       const inAccounts = () => pulls.reduce((sum, stock) => sum + world.balances[stock], 0);
       let lockedNeed: number | undefined;
       return (day) => {
-        if (day >= startDay) {
-          lockedNeed ??= 'perMonth' in need ? need.perMonth : (need.yearlyShareOfAccounts * inAccounts()) / 12;
+        // A share of the accounts waits until there is something in them, since they may not have opened yet.
+        if (day >= startDay && lockedNeed === undefined) {
+          if ('perMonth' in need) lockedNeed = need.perMonth;
+          else if (inAccounts() > 0) lockedNeed = (need.yearlyShareOfAccounts * inAccounts()) / 12;
         }
         const perMonth = lockedNeed ?? 0;
         const received = world.balances[buffer];
@@ -170,7 +183,7 @@ export function settleGate({ buffer, pulls, overflow, need, startDay, fires }: G
 export function deflateDeposits(stock: number, annualInflation: number, fires: Uint8Array): Rule {
   const dailyLoss = (1 + annualInflation) ** (-1 / DAYS_PER_YEAR);
   return {
-    phase: 'settle',
+    phase: 'close',
     fires,
     start: (world) => () => {
       world.ledger.deposits[stock] *= dailyLoss;

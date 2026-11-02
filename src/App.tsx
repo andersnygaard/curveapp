@@ -1,4 +1,5 @@
 import { useState, type KeyboardEvent } from 'react';
+import ErrorBoundary from './components/ErrorBoundary';
 import { BritishFlag, NorwegianFlag } from './flags';
 import { LanguageContext, translations, useLanguage } from './i18n';
 import InputTab from './input/InputTab';
@@ -82,7 +83,9 @@ export default function App() {
           aria-labelledby="tab-simulation"
           hidden={activeTab !== 'simulation'}
         >
-          <SimulationTab active={activeTab === 'simulation'} input={input} />
+          <ErrorBoundary message={t.somethingWentWrong}>
+            <SimulationTab active={activeTab === 'simulation'} input={input} />
+          </ErrorBoundary>
         </section>
         <section
           id="panel-input"
@@ -91,7 +94,11 @@ export default function App() {
           aria-labelledby="tab-input"
           hidden={activeTab !== 'input'}
         >
-          {activeTab === 'input' && <InputTab graph={graph} setGraph={setGraph} input={input} recovered={recovered} />}
+          {activeTab === 'input' && (
+            <ErrorBoundary message={t.somethingWentWrong}>
+              <InputTab graph={graph} setGraph={setGraph} input={input} recovered={recovered} />
+            </ErrorBoundary>
+          )}
         </section>
       </main>
 

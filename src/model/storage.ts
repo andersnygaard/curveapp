@@ -11,17 +11,19 @@ const VERSION = 2;
 
 type Stored = { version?: number; boxes?: PlacedBox[]; wires?: Wire[] };
 
-// A box saved before a field existed gets its default, so nothing has to check for missing fields.
+// A box saved before a field existed gets its default, so nothing has to check for missing fields. Null stays only
+// where it means something, such as no payout age.
 function withDefaults(box: PlacedBox, names: DefaultNames): PlacedBox {
   const spec = catalog[box.type];
-  const data = { ...spec.defaults(names), ...box.data };
-  return { ...box, data, ...(spec.fixed ? { deletable: false } : {}) } as PlacedBox;
+  const defaults: Record<string, unknown> = spec.defaults(names);
+  const stored = Object.entries(box.data).filter(([key, value]) => value !== null || defaults[key] === null);
+  const data = { ...defaults, ...Object.fromEntries(stored) };
+  const position = box.position ?? { x: 0, y: 0 };
+  return { ...box, position, data, ...(spec.fixed ? { deletable: false } : {}) } as PlacedBox;
 }
 
 function normalize(boxes: PlacedBox[], wires: Wire[], names: DefaultNames): Graph {
-  const known = boxes
-    .filter((box) => BOX_TYPES.includes(box.type) && box.position && box.data)
-    .map((box) => withDefaults(box, names));
+  const known = boxes.map((box) => withDefaults(box, names));
   const withMe = known.some((box) => box.type === 'me') ? known : placeMeBox(known, names);
   return { boxes: syncG(withMe, names), wires: wires.filter((wire) => canConnect(withMe, wire)) };
 }
@@ -33,14 +35,19 @@ function placeMeBox(boxes: PlacedBox[], names: DefaultNames): PlacedBox[] {
   return [...boxes, createBox('me', { x: rightmost, y: top - 240 }, names)];
 }
 
+const isKnown = (box: PlacedBox) => BOX_TYPES.includes(box.type) && typeof box.data === 'object' && box.data !== null;
+
 // Throws on anything it cannot read, so the caller can keep a copy instead of overwriting it.
 export function parseGraph(text: string, names: DefaultNames): Graph {
   const stored = JSON.parse(text) as Stored & Version1;
   if (stored.version === undefined) {
     const { boxes, wires } = fromVersion1(stored);
-    return normalize(boxes, wires, names);
+    return normalize(boxes.filter(isKnown), wires, names);
   }
+  // Boxes from a newer version, or of a kind this version has never heard of, must not be dropped and written over.
+  if (stored.version !== VERSION) throw new Error('Unknown version');
   if (!Array.isArray(stored.boxes) || !Array.isArray(stored.wires)) throw new Error('Unreadable boxes');
+  if (!stored.boxes.every(isKnown)) throw new Error('Unknown box type');
   return normalize(stored.boxes, stored.wires, names);
 }
 

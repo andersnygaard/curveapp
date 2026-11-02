@@ -45,12 +45,14 @@ export interface EarningsOptions {
   baseG: number;
   growth: number;
   yearEnd: Uint8Array;
+  // When the balance becomes a pension. What has been earned by then is part of it.
+  closeDay?: number;
   fires: Uint8Array;
 }
 
 // Earnings reach the balance at the end of the following year, so the first year end adds last year's.
 export function earnFolketrygd(options: EarningsOptions): Rule {
-  const { stock, openDay, regulatedThisYear, salary, baseG, growth, yearEnd, fires } = options;
+  const { stock, openDay, regulatedThisYear, salary, baseG, growth, yearEnd, closeDay, fires } = options;
   return {
     phase: 'adjust',
     fires,
@@ -60,10 +62,10 @@ export function earnFolketrygd(options: EarningsOptions): Rule {
       return (day) => {
         if (day === openDay) {
           pending = regulatedThisYear
-            ? earnings(salary(day), g.previous / (1 + growth), g.previous, baseG)
-            : earnings(salary(day), g.previous, g.value, baseG);
+            ? earnings(salary(day - 1), g.previous / (1 + growth), g.previous, baseG)
+            : earnings(salary(day - 1), g.previous, g.value, baseG);
         }
-        if (!yearEnd[day]) return;
+        if (!yearEnd[day] && day !== closeDay) return;
         world.grow(stock, pending);
         pending = earnings(salary(day), g.previous, g.value, baseG);
       };
@@ -85,7 +87,7 @@ export interface DepositOptions {
 // Each payment of an income deposits its share of the year's savings. The employer pays, so salary is untouched.
 export function otpDeposit({ stock, lowRate, highRate, salary, share, baseG, fires }: DepositOptions): Rule {
   return {
-    phase: 'money',
+    phase: 'income',
     fires,
     start(world) {
       const g = world.factor(G);
@@ -102,13 +104,13 @@ export function otpDeposit({ stock, lowRate, highRate, salary, share, baseG, fir
 // The calculated balance is not money. From the first payment it turns into a fixed yearly pension in today's money.
 export function payFolketrygd(stock: number, to: number, divisor: number, fires: Uint8Array, label: string): Rule {
   return {
-    phase: 'money',
+    phase: 'payout',
     fires,
     start(world) {
       let perMonth: number | undefined;
       return () => {
         perMonth ??= world.balances[stock] / divisor / 12;
-        world.move(OUTSIDE, to, perMonth, label);
+        world.notePayout(stock, world.move(OUTSIDE, to, perMonth, label));
       };
     },
   };

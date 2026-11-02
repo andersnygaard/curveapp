@@ -1,6 +1,7 @@
 import { OUTSIDE } from '../../engine/engine';
 import { otpDeposit } from '../../engine/norway';
 import { payOutOverYears } from '../../engine/rules';
+import { DAYS_PER_YEAR } from '../../engine/timeline';
 import { today, validDate } from '../dates';
 import type { BoxSpec, CompileContext, DiagnosticCode } from '../spec';
 import { MANY } from '../spec';
@@ -45,11 +46,13 @@ function buildPayout(otp: OtpBox, context: CompileContext) {
   if (fromDay === null) return;
   const market = context.into(otp, 'influence')[0];
   const target = context.outOf(otp, 'money')[0];
+  // A payout that began before the simulation has already used some of its term.
+  const monthsGone = fromDay < 0 ? Math.round((-fromDay / DAYS_PER_YEAR) * 12) : 0;
   context.addRule(
     payOutOverYears({
       stock: context.stockOf(otp),
       to: target ? context.stockOf(target) : OUTSIDE,
-      years: Math.max(1, otp.data.payoutYears),
+      payments: Math.round(Math.max(1, otp.data.payoutYears) * 12) - monthsGone,
       annualRate: market?.type === 'return' ? annualRateOf(market) : 0,
       fires: context.timeline.fires({ every: 'monthly', from: fromDay }),
       label: `payout:${otp.id}`,
@@ -75,15 +78,13 @@ export const otpSpec: BoxSpec<OtpBox> = {
   holds: true,
   usesG: (otp, query) => incomesOf(query.into(otp, 'basis')).some((income) => basisOf(income) > 0),
   declare(otp, context) {
-    const { name, startAmount, startDate, payoutAge } = otp.data;
-    const fromDay = payoutAge === null ? null : context.dayOfAge(payoutAge);
+    const { name, startAmount, startDate } = otp.data;
     context.addStock(otp, {
       name,
       unit: 'money',
       currency: 'NOK',
       opening: Math.max(0, startAmount),
       openDay: context.timeline.dayOf(validDate(startDate)),
-      payout: fromDay === null ? undefined : { fromDay, label: `payout:${otp.id}` },
     });
   },
   build(otp, context) {

@@ -68,7 +68,9 @@ export default function SimulationTab({ active, input }: Props) {
 
   // The text follows the passes on screen, also in the moment before a new run has its first picture.
   const toLastAge = player.years === yearsToLastAge && horizon === 'lastAge';
-  const percent = new Intl.NumberFormat(t.locale, { style: 'percent', maximumFractionDigits: 0 });
+  const percentFormat = new Intl.NumberFormat(t.locale, { style: 'percent', maximumFractionDigits: 0 });
+  // Rounded down, so 100 % means that every single pass held.
+  const percent = (share: number) => percentFormat.format(Math.floor(share * 100) / 100);
   const ageAt = (day: number) =>
     new Date(player.layout.startMs + day * DAY_MS).getUTCFullYear() - (birthYear ?? 0);
 
@@ -118,8 +120,8 @@ export default function SimulationTab({ active, input }: Props) {
       {player.summary.gates.map((gate) => (
         <p key={gate.id} className="sim-gate">
           {toLastAge
-            ? t.gateHeldToAge(gate.name, percent.format(gate.heldShare), LAST_AGE)
-            : t.gateHeldWholePeriod(gate.name, percent.format(gate.heldShare))}
+            ? t.gateHeldToAge(gate.name, percent(gate.heldShare), LAST_AGE)
+            : t.gateHeldWholePeriod(gate.name, percent(gate.heldShare))}
         </p>
       ))}
 
@@ -143,8 +145,8 @@ export default function SimulationTab({ active, input }: Props) {
             {stock.heldShare !== null && (
               <p className="chart-note">
                 {toLastAge
-                  ? t.heldToAge(percent.format(stock.heldShare), LAST_AGE)
-                  : t.heldWholePeriod(percent.format(stock.heldShare))}
+                  ? t.heldToAge(percent(stock.heldShare), LAST_AGE)
+                  : t.heldWholePeriod(percent(stock.heldShare))}
               </p>
             )}
             {stock.afterTax !== null && <p className="chart-note">{t.afterTaxIfWithdrawn(money.format(stock.afterTax))}</p>}

@@ -103,6 +103,15 @@ describe('boxes saved by version 1', () => {
     expect(pass.series[a].at(-1)).toBeLessThan(1_140_000);
   });
 
+  it('fills in what an old Folketrygden card did not have', () => {
+    const older = {
+      nodes: [{ id: 'p', type: 'pension', position: { x: 0, y: 0 }, data: { name: 'NP', startAmount: 0, startDate: '2027-01-01', g: 110_000 } }],
+      edges: [],
+    };
+    const restored = parseGraph(JSON.stringify(older), names);
+    expect(restored.boxes.find((box) => box.type === 'g')!.data).toEqual({ g: 110_000, gGrowth: 0, standardDeviation: 1 });
+  });
+
   it('moves G out of an old Folketrygden card when there is no G box', () => {
     const older = {
       nodes: [{ id: 'p', type: 'pension', position: { x: 0, y: 0 }, data: { name: 'NP', startAmount: 0, startDate: '2027-01-01', g: 110_000, gGrowth: 2, standardDeviation: 3 } }],
@@ -144,14 +153,32 @@ describe('saving and loading', () => {
     expect(again.boxes[0].data).toMatchObject({ stopsAtRetirement: true });
   });
 
-  it('drops unknown box types and the wires that went to them', () => {
+  it('refuses box types it does not know, instead of dropping them and writing over them', () => {
+    const stored = JSON.parse(serializeGraph(defaultGraph(names)));
+    stored.boxes.push({ id: 'x', type: 'future', position: { x: 0, y: 0 }, data: {} });
+    expect(() => parseGraph(JSON.stringify(stored), names)).toThrow();
+  });
+
+  it('refuses a version it does not know', () => {
+    const stored = JSON.parse(serializeGraph(defaultGraph(names)));
+    expect(() => parseGraph(JSON.stringify({ ...stored, version: 99 }), names)).toThrow();
+  });
+
+  it('keeps a box that has lost its place on the canvas', () => {
+    const stored = JSON.parse(serializeGraph(defaultGraph(names)));
+    delete stored.boxes[0].position;
+    const again = parseGraph(JSON.stringify(stored), names);
+    expect(again.boxes[0].position).toEqual({ x: 0, y: 0 });
+  });
+
+  it('replaces null with the default where null has no meaning, and keeps it where it has', () => {
     const graph = defaultGraph(names);
     const stored = JSON.parse(serializeGraph(graph));
-    stored.boxes.push({ id: 'x', type: 'future', position: { x: 0, y: 0 }, data: {} });
-    stored.wires.push({ id: 'y', source: 'x', target: stored.boxes[2].id, kind: 'money' });
+    stored.boxes.push({ id: 'b', type: 'budget', position: { x: 0, y: 0 }, data: { name: 'B', lines: null } });
+    stored.boxes.push({ id: 'o', type: 'otp', position: { x: 0, y: 0 }, data: { name: 'O', payoutAge: null } });
     const again = parseGraph(JSON.stringify(stored), names);
-    expect(again.boxes.some((box) => box.id === 'x')).toBe(false);
-    expect(again.wires.some((wire) => wire.source === 'x')).toBe(false);
+    expect(Array.isArray((again.boxes.find((box) => box.id === 'b')!.data as { lines: unknown }).lines)).toBe(true);
+    expect((again.boxes.find((box) => box.id === 'o')!.data as { payoutAge: unknown }).payoutAge).toBeNull();
   });
 });
 
@@ -185,6 +212,13 @@ describe('what cannot be read', () => {
   it('reports a shape it does not know the same way', () => {
     store.set('curve.boxes', JSON.stringify({ version: 2, boxes: 'nonsense' }));
     expect(loadGraph(names).recovered).toBe(true);
+  });
+
+  it('keeps boxes from a newer version of the app', () => {
+    const newer = JSON.stringify({ version: 99, boxes: [], wires: [] });
+    store.set('curve.boxes', newer);
+    expect(loadGraph(names).recovered).toBe(true);
+    expect(store.get('curve.boxes.backup')).toBe(newer);
   });
 
   it('copes with storage that is blocked', () => {

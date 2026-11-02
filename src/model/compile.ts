@@ -65,9 +65,12 @@ export function compile(input: SimulationInput, years: number): Model {
     markCanRunOut(stock) {
       stocks[stock].canRunOut = true;
     },
+    // Half a year means the first of July, so an age can be given to the month.
     dayOfAge(age) {
       const { birthYear } = query.assumptions;
-      return birthYear === null ? null : timeline.dayOf(`${birthYear + age}-01-01`);
+      if (birthYear === null || !Number.isFinite(age)) return null;
+      const year = birthYear + age;
+      return timeline.dayOfMs(Date.UTC(Math.floor(year), Math.round((year - Math.floor(year)) * 12), 1));
     },
   };
 
