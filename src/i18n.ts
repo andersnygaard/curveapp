@@ -45,6 +45,25 @@ const defaultNames: Record<Language, DefaultNames> = {
   },
 };
 
+// Words people use as names, beyond the default ones. One word for each in both languages, so changing back gives what was there.
+const moreNames: Record<Language, string>[] = [
+  { no: 'Inntekt', en: 'Income' },
+  { no: 'Trekk', en: 'Transfer' },
+  { no: 'Konto', en: 'Account' },
+  { no: 'Avkastning', en: 'Return' },
+  { no: 'Pensjon', en: 'Pension' },
+  { no: 'Tjenestepensjon', en: 'Occupational pension' },
+  { no: 'Ny linje', en: 'New line' },
+];
+
+// What a box is called in the other language, for the names that are the same word.
+export function wordsBetween(from: Language, to: Language): [string, string][] {
+  if (from === to) return [];
+  const keys = Object.keys(defaultNames.no) as (keyof DefaultNames)[];
+  const words = [...keys.map((key) => ({ no: defaultNames.no[key], en: defaultNames.en[key] })), ...moreNames];
+  return words.filter((word) => word.no !== word.en).map((word) => [word[from], word[to]]);
+}
+
 export const translations = {
   en: {
     language: 'Language',
@@ -175,6 +194,7 @@ export const translations = {
     withdrawalNote:
       'Pension wired in counts first, after tax. What is missing comes from the accounts by size, and any surplus goes on. An ASK pays no tax on deposits and shielding, and then the tax on gains set on the account. A regular account pays none.',
     plan: 'Plan',
+    closePlan: 'Close the plan',
     planNote: "The expected course without market swings, in today's money. Pension is before tax and withdrawals are after tax, with the tax on its own line. Amounts are rounded.",
     planToAge: (age: number) => `The plan runs to age ${age}.`,
     planForYears: (years: number) => `The plan runs for ${years} years.`,
@@ -412,6 +432,7 @@ export const translations = {
     withdrawalNote:
       'Pensjon som kobles inn teller først, etter skatt. Det som mangler tas fra kontoene etter størrelse, og det som er til overs går videre. En ASK betaler ingen skatt på innskudd og skjermingsfradrag, og deretter skatten på gevinst som står på kontoen. En vanlig konto betaler ingen.',
     plan: 'Plan',
+    closePlan: 'Lukk planen',
     planNote: 'Forventet forløp uten markedssvingninger, i dagens kroner. Pensjon står før skatt og uttak etter skatt, med skatten på egen linje. Beløpene er avrundet.',
     planToAge: (age: number) => `Planen går til ${age} år.`,
     planForYears: (years: number) => `Planen går ${years} år frem.`,

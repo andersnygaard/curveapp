@@ -18,6 +18,8 @@ const savedSetup = JSON.stringify({
 });
 
 const TOUR_SEEN = 'curve.tourSeen';
+const PLAN_OPEN = 'curve.planOpen';
+const WIDE_SCREEN = '(min-width: 60.01rem)';
 const stored = () => localStorage.getItem('curve.boxes') ?? '';
 const fileOf = (text: string) => new File([text], 'setup.json', { type: 'application/json' });
 
@@ -33,12 +35,14 @@ const meta: Meta<typeof App> = {
     // The stories read the English texts, so someone who has chosen English is the starting point here.
     localStorage.setItem('curve.language', 'en');
     localStorage.setItem(TOUR_SEEN, 'true');
+    localStorage.removeItem(PLAN_OPEN);
     const confirm = spyOn(window, 'confirm').mockReturnValue(true);
     return () => {
       confirm.mockRestore();
       localStorage.removeItem('curve.boxes');
       localStorage.removeItem('curve.language');
       localStorage.removeItem(TOUR_SEEN);
+      localStorage.removeItem(PLAN_OPEN);
     };
   },
 };
@@ -48,6 +52,93 @@ type Story = StoryObj<typeof App>;
 
 const tourTitleIs = (canvasElement: HTMLElement, name: string) =>
   waitFor(() => expect(within(canvasElement).getByRole('dialog')).toHaveAccessibleName(name), { timeout: 5000 });
+
+const thePlan = (canvasElement: HTMLElement) => within(canvasElement).queryByRole('complementary', { name: 'Plan' });
+
+export const ThePlanBelongsToBothTabs: Story = {
+  beforeEach: () => localStorage.setItem(PLAN_OPEN, 'true'),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByRole('tab', { name: 'Simulation' })).toHaveAttribute('aria-selected', 'true');
+    await expect(thePlan(canvasElement)).toBeVisible();
+    // The plan button is on the tab row, and on a narrow screen the plan lies over it until it is closed.
+    if (!window.matchMedia(WIDE_SCREEN).matches) return;
+    await userEvent.click(canvas.getByRole('tab', { name: 'Input' }));
+    await expect(thePlan(canvasElement)).toBeVisible();
+    await userEvent.click(canvas.getByRole('button', { name: 'Plan' }));
+    await expect(thePlan(canvasElement)).toBeNull();
+    await userEvent.click(canvas.getByRole('tab', { name: 'Simulation' }));
+    await expect(thePlan(canvasElement)).toBeNull();
+    await expect(localStorage.getItem(PLAN_OPEN)).toBe('false');
+  },
+};
+
+export const ThePlanButtonOpensItOnBothTabs: Story = {
+  beforeEach: () => localStorage.setItem(PLAN_OPEN, 'false'),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(thePlan(canvasElement)).toBeNull();
+    await expect(canvas.getByRole('button', { name: 'Plan' })).toHaveAttribute('aria-pressed', 'false');
+    await userEvent.click(canvas.getByRole('button', { name: 'Plan' }));
+    await expect(thePlan(canvasElement)).toBeVisible();
+    await expect(localStorage.getItem(PLAN_OPEN)).toBe('true');
+  },
+};
+
+export const ThePlanStartsOpenOnlyOnAWideScreen: Story = {
+  play: async ({ canvasElement }) => {
+    if (window.matchMedia(WIDE_SCREEN).matches) await expect(thePlan(canvasElement)).toBeVisible();
+    else await expect(thePlan(canvasElement)).toBeNull();
+    // Nothing is stored until a choice has been made, so it keeps following the screen.
+    await expect(localStorage.getItem(PLAN_OPEN)).toBeNull();
+  },
+};
+
+export const ThePlanTakesSpaceOrLiesOverThePage: Story = {
+  beforeEach: () => localStorage.setItem(PLAN_OPEN, 'true'),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const main = canvasElement.querySelector('.main')!;
+    const plan = canvasElement.querySelector('.plan')!;
+    await waitFor(() => expect(plan.getBoundingClientRect().right).toBeLessThanOrEqual(window.innerWidth + 0.5));
+    if (window.matchMedia(WIDE_SCREEN).matches) {
+      // Beside what it shares the page with, and the graphs are not covered.
+      await waitFor(() => expect(main.getBoundingClientRect().right).toBeLessThanOrEqual(plan.getBoundingClientRect().left + 0.5));
+      await expect(canvas.queryByRole('button', { name: 'Close the plan' })).toBeNull();
+    } else {
+      await expect(main.getBoundingClientRect().width).toBeCloseTo(document.documentElement.clientWidth, 0);
+      await userEvent.click(canvas.getByRole('button', { name: 'Close the plan' }));
+      await expect(thePlan(canvasElement)).toBeNull();
+      await expect(localStorage.getItem(PLAN_OPEN)).toBe('false');
+    }
+  },
+};
+
+export const TheTourShowsThePlanWithoutChangingYourChoice: Story = {
+  beforeEach: () => {
+    localStorage.removeItem(TOUR_SEEN);
+    localStorage.setItem(PLAN_OPEN, 'false');
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await tourTitleIs(canvasElement, 'Welcome to Curve');
+    await expect(thePlan(canvasElement)).toBeNull();
+    const next = () => userEvent.click(canvas.getByRole('button', { name: 'Next' }));
+    await next();
+    await tourTitleIs(canvasElement, 'Build your setup');
+    await next();
+    await tourTitleIs(canvasElement, 'Connect the boxes');
+    await next();
+    await tourTitleIs(canvasElement, 'Read the plan');
+    await expect(thePlan(canvasElement)).not.toBeNull();
+    await next();
+    await tourTitleIs(canvasElement, 'Keep your setup');
+    await expect(thePlan(canvasElement)).toBeNull();
+    await expect(localStorage.getItem(PLAN_OPEN)).toBe('false');
+    await userEvent.click(canvas.getByRole('button', { name: 'Skip' }));
+    await expect(thePlan(canvasElement)).toBeNull();
+  },
+};
 
 export const TheFirstVisitIsInNorwegian: Story = {
   beforeEach: () => localStorage.removeItem('curve.language'),
@@ -78,6 +169,44 @@ export const EnglishIsOneClickAway: Story = {
     await userEvent.click(canvas.getByRole('button', { name: 'English' }));
     await expect(canvas.getByRole('tab', { name: 'Simulation' })).toBeVisible();
     await waitFor(() => expect(localStorage.getItem('curve.language')).toBe('en'));
+  },
+};
+
+const storedNames = () => JSON.parse(stored()).boxes.flatMap((box: { data: { name?: string } }) => box.data.name ?? []);
+
+export const ChangingLanguageRenamesTheBoxes: Story = {
+  beforeEach: () => localStorage.removeItem('curve.language'),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await waitFor(() => expect(storedNames()).toEqual(expect.arrayContaining(['Lønn', 'Fond', 'Aksjemarkedet'])));
+    await userEvent.click(canvas.getByRole('button', { name: 'English' }));
+    await waitFor(() => expect(storedNames()).toEqual(expect.arrayContaining(['Salary', 'Fund', 'Stock market'])));
+    await expect(storedNames()).not.toContain('Fond');
+    await userEvent.click(canvas.getByRole('button', { name: 'Norsk' }));
+    await waitFor(() => expect(storedNames()).toEqual(expect.arrayContaining(['Lønn', 'Fond', 'Aksjemarkedet'])));
+  },
+};
+
+export const ANameOfYourOwnStaysWhenTheLanguageChanges: Story = {
+  beforeEach: () => {
+    localStorage.setItem('curve.boxes', savedSetup);
+  },
+  play: async ({ canvasElement }) => {
+    await waitFor(() => expect(storedNames()).toContain('From the file'));
+    await userEvent.click(within(canvasElement).getByRole('button', { name: 'Norsk' }));
+    await within(canvasElement).findByRole('tab', { name: 'Simulering' });
+    await expect(storedNames()).toContain('From the file');
+  },
+};
+
+export const ChoosingTheSameLanguageChangesNothing: Story = {
+  beforeEach: () => {
+    localStorage.setItem('curve.boxes', JSON.stringify({ ...JSON.parse(savedSetup), boxes: [{ ...JSON.parse(savedSetup).boxes[0], data: { ...JSON.parse(savedSetup).boxes[0].data, name: 'fund' } }] }));
+  },
+  play: async ({ canvasElement }) => {
+    await waitFor(() => expect(storedNames()).toContain('fund'));
+    await userEvent.click(within(canvasElement).getByRole('button', { name: 'English' }));
+    await expect(storedNames()).toContain('fund');
   },
 };
 

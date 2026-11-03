@@ -245,6 +245,25 @@ export const ARegularAccountDoesNot: Story = {
   },
 };
 
+// The graphs read best when they are not too wide, and on a smaller screen nothing changes.
+export const KeepsToAMaximumWidth: Story = {
+  args: { player: fixedPlayer({ stocks: [fund], withdrawals: [withdrawal] }) },
+  play: async ({ canvasElement }) => {
+    const MAXIMUM = 960;
+    const panel = canvasElement.querySelector('.panel')!;
+    const { paddingLeft, paddingRight } = getComputedStyle(panel);
+    const room = panel.clientWidth - parseFloat(paddingLeft) - parseFloat(paddingRight);
+    const widthOf = (selector: string) => canvasElement.querySelector(selector)!.getBoundingClientRect().width;
+    await expect(widthOf('.sim')).toBeCloseTo(Math.min(room, MAXIMUM), 0);
+    // Everything in the tab follows it.
+    for (const selector of ['.sim-toolbar', '.withdrawal', '.chart-canvas']) {
+      await expect(widthOf(selector)).toBeLessThanOrEqual(MAXIMUM);
+    }
+    // To the left, in line with the tabs.
+    await expect(canvasElement.querySelector('.sim')!.getBoundingClientRect().left).toBeCloseTo(panel.getBoundingClientRect().left + parseFloat(paddingLeft), 0);
+  },
+};
+
 export const InNorwegian: Story = {
   globals: { language: 'no' },
   play: async ({ canvasElement }) => {

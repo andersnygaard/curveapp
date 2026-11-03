@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
-import { expect, within } from 'storybook/test';
+import { expect, fn, userEvent, within } from 'storybook/test';
 import type { Plan, PlanLine } from '../model/plan';
 import { PlanView } from './PlanPanel';
 
@@ -36,13 +36,28 @@ const plan: Plan = {
 };
 
 const meta: Meta<typeof PlanView> = {
-  title: 'Input/PlanView',
+  title: 'Simulation/PlanView',
   component: PlanView,
   args: { plan, failed: false },
 };
 export default meta;
 
 type Story = StoryObj<typeof PlanView>;
+
+// A narrow screen has no plan button in reach while the plan lies over the page, so it closes from here.
+// On a wide screen the button on the tab row is always in reach, so this one stays away.
+export const CanBeClosedOnANarrowScreen: Story = {
+  args: { onClose: fn() },
+  play: async ({ canvasElement, args }) => {
+    const close = within(canvasElement).queryByRole('button', { name: 'Close the plan' });
+    if (window.matchMedia('(min-width: 60.01rem)').matches) {
+      await expect(close).toBeNull();
+      return;
+    }
+    await userEvent.click(close!);
+    await expect(args.onClose).toHaveBeenCalled();
+  },
+};
 
 export const Calculating: Story = {
   args: { plan: null },

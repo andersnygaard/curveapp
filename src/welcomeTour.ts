@@ -22,13 +22,20 @@ export function markTourSeen() {
 }
 
 // What lights up is decided here, so the tour itself knows nothing of tabs or boxes.
-export function welcomeSteps(t: Translations, showTab: (tab: 'simulation' | 'input') => void): TourStep[] {
-  const onTab = (tab: 'simulation' | 'input') => () => showTab(tab);
+export function welcomeSteps(
+  t: Translations,
+  showTab: (tab: 'simulation' | 'input') => void,
+  showPlan: (shown: boolean) => void,
+): TourStep[] {
+  const onTab = (tab: 'simulation' | 'input', planShown = false) => () => {
+    showTab(tab);
+    showPlan(planShown);
+  };
   return [
     { ...t.tour.welcome, target: '.flags', centered: true, before: onTab('simulation') },
     { ...t.tour.input, target: '.input-toolbar', before: onTab('input') },
     { ...t.tour.canvas, target: '.box-me', before: onTab('input') },
-    { ...t.tour.plan, target: '.plan', before: onTab('input') },
+    { ...t.tour.plan, target: '.plan', before: onTab('input', true) },
     { ...t.tour.files, target: '.file-buttons', before: onTab('input') },
     { ...t.tour.simulation, target: '.horizons', before: onTab('simulation') },
   ];

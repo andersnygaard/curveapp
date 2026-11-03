@@ -243,6 +243,20 @@ button {
   border-bottom: 1px solid var(--line);
 }
 
+/* The line under the tabs runs all the way, past the button that shares the row with them. */
+.tab-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-right: var(--gutter);
+  border-bottom: 1px solid var(--line);
+}
+
+.tab-row .tablist {
+  border-bottom: 0;
+}
+
 .tab {
   position: relative;
   padding: 0.75rem 0.75rem 1.125rem;
@@ -301,7 +315,9 @@ button {
   outline-offset: -2px;
 }
 
+/* Graphs read best when they are not too wide. It stays to the left, in line with the tabs. */
 .sim {
+  max-width: 60rem;
   color: var(--ink);
 }
 
@@ -765,31 +781,71 @@ button {
   stroke-linecap: round;
 }
 
-.input-plan-toggle {
-  margin-left: auto;
-}
-
-.input-workspace {
-  display: flex;
-  gap: 0.75rem;
-  height: clamp(26rem, calc(100dvh - 18rem), 60rem);
-}
-
 .input-canvas {
-  flex: 1;
-  min-width: 0;
+  height: clamp(26rem, calc(100dvh - 18rem), 60rem);
   border: 1px solid var(--line);
   border-radius: 4px;
 }
 
+/* The plan makes room by itself, so what is beside it gets narrower instead of being covered. */
+.workspace {
+  --plan-width: 23rem;
+
+  display: grid;
+  flex: 1;
+  grid-template-columns: minmax(0, 1fr) 0;
+  transition: grid-template-columns 220ms ease-out;
+}
+
+.workspace-with-plan {
+  grid-template-columns: minmax(0, 1fr) calc(var(--plan-width) + var(--gutter));
+}
+
+/* Anchored to the right edge and cut off on the left, so it comes in from the side as the room opens. */
+.plan-drawer {
+  display: flex;
+  justify-content: flex-end;
+  align-items: flex-start;
+  overflow: clip;
+  padding-right: var(--gutter);
+}
+
+.plan-backdrop {
+  display: none;
+}
+
 .plan {
-  flex: 0 0 23rem;
+  position: sticky;
+  top: 1rem;
+  flex: none;
+  box-sizing: border-box;
+  width: var(--plan-width);
+  max-height: calc(100dvh - 2rem);
+  margin: 2rem 0;
   overflow-y: auto;
   padding: 0.75rem 1rem 1rem;
   border: 1px solid var(--line);
   border-radius: 4px;
   background: #fff;
   font-size: 0.875rem;
+}
+
+.plan-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.plan-close {
+  display: none;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font-size: 1.5rem;
+  line-height: 1;
 }
 
 .plan-title {
@@ -848,19 +904,62 @@ button {
   font-variant-numeric: tabular-nums;
 }
 
+/* There is no width to give up here, so the plan lies over the page and closes from its own button. */
 @media (max-width: 60rem) {
-  .input-workspace {
-    flex-direction: column;
-    height: auto;
+  .workspace,
+  .workspace-with-plan {
+    display: block;
   }
 
-  .input-canvas {
-    flex: none;
-    height: clamp(26rem, calc(100dvh - 18rem), 60rem);
+  .plan-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    display: block;
+    border: 0;
+    background: rgb(18 38 58 / 35%);
+  }
+
+  .plan-drawer {
+    position: fixed;
+    inset: 0 0 0 auto;
+    z-index: 51;
+    display: block;
+    width: min(var(--plan-width), 100vw);
+    overflow-y: auto;
+    padding: 0;
+    background: #fff;
+    animation: plan-slide-in 220ms ease-out;
   }
 
   .plan {
-    flex: none;
+    position: static;
+    width: auto;
+    max-height: none;
+    margin: 0;
+    overflow: visible;
+    border: 0;
+    border-radius: 0;
+  }
+
+  .plan-close {
+    display: block;
+  }
+}
+
+@keyframes plan-slide-in {
+  from {
+    transform: translateX(100%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workspace {
+    transition: none;
+  }
+
+  .plan-drawer {
+    animation: none;
   }
 }
 

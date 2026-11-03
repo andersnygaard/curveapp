@@ -6,12 +6,15 @@ import Header from './components/Header';
 import LanguagePicker from './components/LanguagePicker';
 import Tabs from './components/Tabs';
 import Tour from './components/Tour';
-import { LanguageContext, translations, useLanguage } from './i18n';
+import { LanguageContext, translations, useLanguage, wordsBetween, type Language } from './i18n';
 import InputTab from './input/InputTab';
 import { useGraph, useSimulationInput } from './input/useGraph';
 import { today } from './model/dates';
+import { renameBoxes } from './model/names';
 import { parseGraph, serializeGraph } from './model/storage';
+import PlanPanel from './simulation/PlanPanel';
 import SimulationTab from './simulation/SimulationTab';
+import { usePlanOpen } from './simulation/usePlanOpen';
 import { isNewHere, markTourSeen, welcomeSteps } from './welcomeTour';
 
 const tabs = ['simulation', 'input'] as const;
@@ -27,10 +30,19 @@ export default function App() {
   const input = useSimulationInput(graph);
   const [filesLoaded, setFilesLoaded] = useState(0);
   const [unreadableFile, setUnreadableFile] = useState(false);
+  const [planOpen, choosePlanOpen] = usePlanOpen();
+  // The tour shows the plan when it gets there, and that is not the user's choice, so it is not remembered.
+  const [planInTour, setPlanInTour] = useState(false);
+  const planShown = touring ? planInTour : planOpen;
 
   useEffect(() => {
     if (touring) markTourSeen();
   }, [touring]);
+
+  function changeLanguage(next: Language) {
+    setLanguage(next);
+    setGraph((current) => renameBoxes(current, wordsBetween(language, next)));
+  }
 
   // It only asks once it knows that the file can be read, and nothing changes until the answer is yes.
   function loadFile(text: string) {
@@ -53,18 +65,23 @@ export default function App() {
           contents={() => serializeGraph(graph)}
           onLoad={loadFile}
         />
-        <LanguagePicker language={language} onChange={setLanguage} />
+        <LanguagePicker language={language} onChange={changeLanguage} />
         <button type="button" className="tour-open" aria-label={t.tourOpen} title={t.tourOpen} onClick={() => setTouring(true)}>
           ?
         </button>
       </Header>
 
-      <Tabs
-        label={t.sections}
-        tabs={tabs.map((id) => ({ id, label: t[id] }))}
-        active={activeTab}
-        onChange={setActiveTab}
-      />
+      <div className="tab-row">
+        <Tabs
+          label={t.sections}
+          tabs={tabs.map((id) => ({ id, label: t[id] }))}
+          active={activeTab}
+          onChange={setActiveTab}
+        />
+        <button type="button" className="input-add" aria-pressed={planShown} onClick={() => choosePlanOpen(!planShown)}>
+          {t.plan}
+        </button>
+      </div>
 
       {unreadableFile && (
         <p className="file-error" role="alert">
@@ -75,36 +92,46 @@ export default function App() {
         </p>
       )}
 
-      <main className="main">
-        <section
-          id="panel-simulation"
-          className="panel"
-          role="tabpanel"
-          aria-labelledby="tab-simulation"
-          hidden={activeTab !== 'simulation'}
-        >
-          <ErrorBoundary message={t.somethingWentWrong}>
-            <SimulationTab active={activeTab === 'simulation'} input={input} />
-          </ErrorBoundary>
-        </section>
-        <section
-          id="panel-input"
-          className="panel"
-          role="tabpanel"
-          aria-labelledby="tab-input"
-          hidden={activeTab !== 'input'}
-        >
-          {activeTab === 'input' && (
+      <div className={planShown ? 'workspace workspace-with-plan' : 'workspace'}>
+        <main className="main">
+          <section
+            id="panel-simulation"
+            className="panel"
+            role="tabpanel"
+            aria-labelledby="tab-simulation"
+            hidden={activeTab !== 'simulation'}
+          >
             <ErrorBoundary message={t.somethingWentWrong}>
-              <InputTab key={filesLoaded} graph={graph} setGraph={setGraph} input={input} recovered={recovered && filesLoaded === 0} />
+              <SimulationTab active={activeTab === 'simulation'} input={input} />
             </ErrorBoundary>
-          )}
-        </section>
-      </main>
+          </section>
+          <section
+            id="panel-input"
+            className="panel"
+            role="tabpanel"
+            aria-labelledby="tab-input"
+            hidden={activeTab !== 'input'}
+          >
+            {activeTab === 'input' && (
+              <ErrorBoundary message={t.somethingWentWrong}>
+                <InputTab key={filesLoaded} graph={graph} setGraph={setGraph} input={input} recovered={recovered && filesLoaded === 0} planOpen={planShown} />
+              </ErrorBoundary>
+            )}
+          </section>
+        </main>
+        {planShown && (
+          <>
+            <button type="button" className="plan-backdrop" aria-hidden="true" tabIndex={-1} onClick={() => choosePlanOpen(false)} />
+            <div className="plan-drawer">
+              <PlanPanel input={input} onClose={() => choosePlanOpen(false)} />
+            </div>
+          </>
+        )}
+      </div>
 
       <Footer />
 
-      {touring && <Tour steps={welcomeSteps(t, setActiveTab)} onClose={() => setTouring(false)} />}
+      {touring && <Tour steps={welcomeSteps(t, setActiveTab, setPlanInTour)} onClose={() => setTouring(false)} />}
     </LanguageContext.Provider>
   );
 }

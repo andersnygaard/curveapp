@@ -1,7 +1,7 @@
 import { useTranslations, type Translations } from '../i18n';
 import type { Plan, PlanBalance, PlanDate, PlanLine } from '../model/plan';
 import type { SimulationInput } from '../model/types';
-import { usePlan } from '../simulation/usePlan';
+import { usePlan } from './usePlan';
 
 const ROUND_PAYMENTS_TO = 100;
 const BALANCE_DIGITS = 3;
@@ -50,18 +50,25 @@ function DateSection({ date }: { date: PlanDate }) {
   );
 }
 
-export default function PlanPanel({ input }: { input: SimulationInput }) {
+export default function PlanPanel({ input, onClose }: { input: SimulationInput; onClose: () => void }) {
   const { plan, failed } = usePlan(input);
-  return <PlanView plan={plan} failed={failed} />;
+  return <PlanView plan={plan} failed={failed} onClose={onClose} />;
 }
 
 // What the panel shows, given the plan. It works nothing out, so it can be tested with fixed numbers.
-export function PlanView({ plan, failed }: { plan: Plan | null; failed: boolean }) {
+export function PlanView({ plan, failed, onClose }: { plan: Plan | null; failed: boolean; onClose?: () => void }) {
   const t = useTranslations();
 
   return (
     <aside className="plan" aria-label={t.plan}>
-      <h2 className="plan-title">{t.plan}</h2>
+      <div className="plan-heading">
+        <h2 className="plan-title">{t.plan}</h2>
+        {onClose && (
+          <button type="button" className="plan-close" aria-label={t.closePlan} onClick={onClose}>
+            ×
+          </button>
+        )}
+      </div>
       {failed && <p className="plan-note">{t.simulationFailed}</p>}
       {!failed && !plan && <p className="plan-note">{t.calculating}</p>}
       {!failed && plan && plan.dates.length === 0 && <p className="plan-note">{t.planEmpty}</p>}
