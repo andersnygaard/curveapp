@@ -122,16 +122,16 @@ export default function AccountChart({ player, index, locale, birthYear, ageLabe
       context.strokeStyle = color('--curve');
       context.lineWidth = 1.5;
       trace(context, player.current[index], player.progress * (sampleDays.length - 1));
-      const { median, overview } = player.summary.stocks[index];
-      if (overview) {
+      const { median, deposits, shield } = player.summary.stocks[index];
+      if (deposits) {
         context.strokeStyle = color('--muted');
         context.setLineDash(DEPOSITS_DASH);
-        trace(context, overview.deposits);
-        if (overview.shield) {
+        trace(context, deposits);
+        if (shield) {
           context.strokeStyle = color('--series-7');
           context.lineCap = 'round';
           context.setLineDash(SHIELD_DASH);
-          trace(context, overview.shield);
+          trace(context, shield);
           context.lineCap = 'butt';
         }
         context.setLineDash([]);

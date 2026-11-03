@@ -1,5 +1,5 @@
 // Turns what the user drew into what the engine runs. No rule about money or pensions lives here.
-import { orderRules, type Factor, type Model, type Overview, type Rule, type Stock } from '../engine/engine';
+import { orderRules, type Factor, type GateSources, type Model, type Rule, type Stock } from '../engine/engine';
 import { G, G_REGULATION_DATE, nextG } from '../engine/norway';
 import { stepFactor } from '../engine/rules';
 import { DAYS_PER_YEAR, Timeline } from '../engine/timeline';
@@ -47,7 +47,7 @@ export function compile(input: SimulationInput, years: number): Model {
   const stocks: Stock[] = [];
   const factors: Factor[] = [];
   const rules: Rule[] = [];
-  const overviews: Overview[] = [];
+  const gateSources: GateSources[] = [];
   const stockIndex = new Map<string, number>();
   let random = false;
 
@@ -66,9 +66,8 @@ export function compile(input: SimulationInput, years: number): Model {
       factors.push(factor);
       random ||= isRandom;
     },
-    // A calculated balance is not money, so it never goes into a total.
-    addOverview(overview) {
-      overviews.push({ ...overview, stocks: overview.stocks.filter((stock) => stocks[stock].unit === 'money') });
+    addGateSources(sources) {
+      gateSources.push(sources);
     },
     stockOf: (box) => stockIndex.get(box.id)!,
     markCanRunOut(stock) {
@@ -99,7 +98,7 @@ export function compile(input: SimulationInput, years: number): Model {
     ...shown.filter((index) => stocks[index].unit !== 'money'),
   ];
 
-  return { timeline, stocks, factors, rules: orderRules(rules), sampleDays: sampleDaysFor(timeline.days), charted, overviews, random };
+  return { timeline, stocks, factors, rules: orderRules(rules), sampleDays: sampleDaysFor(timeline.days), charted, gateSources, random };
 }
 
 export function diagnose(input: SimulationInput): Diagnostic[] {

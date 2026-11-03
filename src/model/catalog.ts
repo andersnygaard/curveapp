@@ -8,7 +8,6 @@ import { incomeSpec } from './boxes/income';
 import { meSpec } from './boxes/me';
 import { otpSpec } from './boxes/otp';
 import { returnSpec } from './boxes/returnBox';
-import { summarySpec } from './boxes/summary';
 import { transferSpec } from './boxes/transfer';
 import { withdrawalSpec } from './boxes/withdrawal';
 import type { BoxSpec } from './spec';
@@ -25,7 +24,6 @@ export const catalog: { [Type in BoxType]: BoxSpec<BoxOfType<Type>> } = {
   withdrawal: withdrawalSpec,
   g: gSpec,
   me: meSpec,
-  summary: summarySpec,
 };
 
 export const BOX_TYPES = Object.keys(catalog) as BoxType[];
@@ -40,7 +38,6 @@ export const ADDABLE_TYPES = [
   'otp',
   'folketrygd',
   'withdrawal',
-  'summary',
 ] as const satisfies readonly BoxType[];
 export type AddableType = (typeof ADDABLE_TYPES)[number];
 

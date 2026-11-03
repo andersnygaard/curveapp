@@ -31,7 +31,7 @@ function closeDayOf(pension: FolketrygdBox, context: CompileContext): number | u
 export const folketrygdSpec: BoxSpec<FolketrygdBox> = {
   defaults: (names) => ({ name: names.folketrygd, startAmount: 0, startDate: today(), payoutAge: null, divisor: null }),
   takes: { basis: { max: MANY, from: ['income'] } },
-  gives: { money: 1, basis: MANY },
+  gives: { money: 1 },
   holds: true,
   usesG: () => true,
   declare(pension, context) {

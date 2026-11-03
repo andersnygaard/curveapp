@@ -300,18 +300,8 @@ function WithdrawalCard({ id, data }: CardProps<'withdrawal'>) {
       ) : (
         <NumberField label={t.percent} value={data.percent} onChange={(percent) => update({ percent })} />
       )}
+      <NumberField label={t.pensionTax} value={data.pensionTax} onChange={(pensionTax) => update({ pensionTax })} />
       <p className="box-note">{t.withdrawalNote}</p>
-    </BoxCard>
-  );
-}
-
-function SummaryCard({ id, data }: CardProps<'summary'>) {
-  const t = useTranslations();
-  const update = useUpdate<'summary'>(id);
-  return (
-    <BoxCard id={id} type="summary" name={data.name}>
-      <TextField label={t.name} value={data.name} onChange={(name) => update({ name })} />
-      <p className="box-note">{t.summaryNote}</p>
     </BoxCard>
   );
 }
@@ -362,7 +352,6 @@ export const nodeTypes = {
   otp: OtpCard,
   folketrygd: FolketrygdCard,
   withdrawal: WithdrawalCard,
-  summary: SummaryCard,
   g: GCard,
   me: MeCard,
 };

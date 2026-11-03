@@ -16,7 +16,7 @@ interface PlanLineParts {
 type PlanTexts = Record<PlanFlow, Record<PlanChange, (parts: PlanLineParts) => string>>;
 
 const STORAGE_KEY = 'curve.language';
-const DEFAULT_LANGUAGE: Language = 'en';
+const DEFAULT_LANGUAGE: Language = 'no';
 
 const defaultNames: Record<Language, DefaultNames> = {
   en: {
@@ -30,7 +30,6 @@ const defaultNames: Record<Language, DefaultNames> = {
     otp: 'OTP',
     folketrygd: 'National pension',
     withdrawal: 'Withdrawal',
-    summary: 'Summary',
   },
   no: {
     income: 'Lønn',
@@ -43,7 +42,6 @@ const defaultNames: Record<Language, DefaultNames> = {
     otp: 'OTP',
     folketrygd: 'Folketrygden',
     withdrawal: 'Uttak',
-    summary: 'Oppsummering',
   },
 };
 
@@ -57,6 +55,38 @@ export const translations = {
     confirmLoad: 'This replaces your setup with the one in the file. What you have now is lost unless you have saved it to a file.',
     fileUnreadable: 'The file could not be read, so your setup has not changed.',
     close: 'Close',
+    tourOpen: 'Show the tour',
+    tourNext: 'Next',
+    tourBack: 'Back',
+    tourSkip: 'Skip',
+    tourDone: 'Done',
+    tourProgress: (step: number, steps: number) => `Step ${step} of ${steps}`,
+    tour: {
+      welcome: {
+        title: 'Welcome to Curve',
+        text: 'Curve simulates saving and withdrawing through many possible markets. The numbers you see are only examples, and everything stays in your browser. Choose your language up here.',
+      },
+      input: {
+        title: 'Build your setup',
+        text: 'The Input tab is where you build your setup. These buttons add boxes for income, accounts, pensions and more.',
+      },
+      canvas: {
+        title: 'Connect the boxes',
+        text: 'Drag from a dot to a dot of the same shape to connect two boxes. This box is about you: your birth year gives your age on the graphs.',
+      },
+      plan: {
+        title: 'Read the plan',
+        text: 'The plan says what happens when, calculated from your setup.',
+      },
+      files: {
+        title: 'Keep your setup',
+        text: 'Your setup is kept in this browser. Save it as a file to have a copy or to move it to another machine, and load it again here.',
+      },
+      simulation: {
+        title: 'See the result',
+        text: 'The Simulation tab shows where the money comes from each year, and then each account, where the thick line is the median and the thin lines are single passes. Here you choose how far ahead to look.',
+      },
+    },
     sections: 'Sections',
     simulation: 'Simulation',
     input: 'Input',
@@ -71,7 +101,6 @@ export const translations = {
     otp: 'Occupational pension',
     folketrygd: 'National pension',
     withdrawal: 'Withdrawal',
-    summary: 'Summary',
     g: 'G (base amount)',
     me: 'You',
     birthYear: 'Birth year',
@@ -88,12 +117,11 @@ export const translations = {
       otp: 'Add occupational pension',
       folketrygd: 'Add national pension',
       withdrawal: 'Add withdrawal',
-      summary: 'Add summary',
     } satisfies Record<AddableType, string>,
     deleteBox: (name: string) => `Delete ${name}`,
     deleteConnector: 'Delete connector',
     inputHelp:
-      'Drag from a dot to a dot of the same shape. Money flows left to right, return comes in from above, salary gives occupational and national pension their basis, and a summary reads what you connect to it.',
+      'Drag from a dot to a dot of the same shape. Money flows left to right, return comes in from above, and salary gives occupational and national pension their basis.',
     wireMoney: 'Money',
     wireInfluence: 'Influence',
     wireBasis: 'Basis',
@@ -141,13 +169,13 @@ export const translations = {
     withdrawalMode: 'Set as',
     modeAmount: 'Amount a month',
     modePercent: 'Percent of the accounts',
-    perMonth: 'Amount a month (before tax)',
-    percent: 'Percent a year',
-    withdrawalNote: 'Pension wired in counts first. What is missing comes from the accounts by size, and any surplus goes on.',
-    summaryNote:
-      'Shows the boxes you connect together in the simulation. It moves no money. National pension is calculated and not money, so it counts in the withdrawals but not in the total.',
+    perMonth: 'Amount a month (after tax)',
+    percent: 'Percent a year (before tax)',
+    pensionTax: 'Tax on pension (%)',
+    withdrawalNote:
+      'Pension wired in counts first, after tax. What is missing comes from the accounts by size, and any surplus goes on. An ASK pays no tax on deposits and shielding, and then the tax on gains set on the account. A regular account pays none.',
     plan: 'Plan',
-    planNote: "The expected course without market swings, in today's money. Pension and withdrawals are before tax. Amounts are rounded.",
+    planNote: "The expected course without market swings, in today's money. Pension is before tax and withdrawals are after tax, with the tax on its own line. Amounts are rounded.",
     planToAge: (age: number) => `The plan runs to age ${age}.`,
     planForYears: (years: number) => `The plan runs for ${years} years.`,
     planEmpty: 'The plan appears when there is an account or a pension on the canvas.',
@@ -185,6 +213,11 @@ export const translations = {
         changes: ({ from, amount, per }) => `Withdrawal from ${from} becomes ${amount} ${per}`,
         stops: ({ from }) => `Withdrawal from ${from} stops`,
       },
+      tax: {
+        starts: ({ from, amount, per }) => `Tax on ${from} is ${amount} ${per}`,
+        changes: ({ from, amount, per }) => `Tax on ${from} becomes ${amount} ${per}`,
+        stops: ({ from }) => `Tax on ${from} stops`,
+      },
       surplus: {
         starts: ({ to, amount, per }) => (to ? `Surplus of ${amount} ${per} goes to ${to}` : `Surplus of ${amount} ${per} counts as spent`),
         changes: ({ to, amount, per }) => (to ? `Surplus to ${to} becomes ${amount} ${per}` : `Surplus counted as spent becomes ${amount} ${per}`),
@@ -218,12 +251,18 @@ export const translations = {
     resume: 'Resume',
     simulationLegend:
       "All amounts are in today's money. The thick line is the median of all the passes. The thin lines are single passes.",
-    overviewLegend:
-      'The thick line is the total of the boxes connected here. The dashed line is what is left of what you put in, so the gap between them is the return.',
-    overviewShieldLegend: 'The dotted line is the unused shielding deduction, which lowers the tax on gains.',
-    withdrawnInTotal: (amount: string) => `Withdrawn in total: ${amount}`,
-    withdrawalsPerMonth: 'Withdrawals in kroner a month',
+    depositsLegend: 'The dashed line is what is left of what you put in, so the gap up to the thick line is the return.',
+    shieldLegend: 'The dotted line is the unused shielding deduction, which lowers the tax on gains.',
+    withdrawnInTotal: (amount: string) => `Paid out in total: ${amount}`,
+    withdrawnAndTax: (amount: string, tax: string) => `Paid out in total: ${amount} after tax, and ${tax} in tax`,
+    withdrawalsPerMonth: 'Where the money comes from, in kroner a month after tax, with the tax on top. An average of all the passes.',
     otherBoxes: 'Other',
+    need: 'Need',
+    surplus: 'Left over',
+    surplusGoesTo: (name: string) => `Goes on to ${name}`,
+    surplusIsSpent: 'Counts as spent',
+    short: 'Missing',
+    tax: 'Tax',
     medianAfter: (years: number, amount: string) => `Median after ${years} years: ${amount}`,
     medianAtAge: (age: number, amount: string) => `Median at age ${age}: ${amount}`,
     balanceAtAge: (age: number, amount: string) => `Balance at age ${age}: ${amount}`,
@@ -253,6 +292,38 @@ export const translations = {
     confirmLoad: 'Dette erstatter oppsettet ditt med det som er i filen. Det du har nå går tapt hvis du ikke har lagret det til en fil.',
     fileUnreadable: 'Filen kunne ikke leses, så oppsettet ditt er ikke endret.',
     close: 'Lukk',
+    tourOpen: 'Vis omvisningen',
+    tourNext: 'Neste',
+    tourBack: 'Tilbake',
+    tourSkip: 'Hopp over',
+    tourDone: 'Ferdig',
+    tourProgress: (step: number, steps: number) => `Steg ${step} av ${steps}`,
+    tour: {
+      welcome: {
+        title: 'Velkommen til Curve',
+        text: 'Curve simulerer sparing og uttak gjennom mange mulige markeder. Tallene du ser er bare eksempler, og alt blir i nettleseren din. Velg språk her oppe.',
+      },
+      input: {
+        title: 'Bygg oppsettet ditt',
+        text: 'I Inndata-fanen bygger du oppsettet ditt. Knappene legger til bokser for inntekt, kontoer, pensjon og mer.',
+      },
+      canvas: {
+        title: 'Koble boksene',
+        text: 'Dra fra en prikk til en prikk med samme form for å koble to bokser. Denne boksen handler om deg: Fødselsåret gir alderen din på grafene.',
+      },
+      plan: {
+        title: 'Les planen',
+        text: 'Planen viser hva som skjer når, regnet ut fra oppsettet ditt.',
+      },
+      files: {
+        title: 'Ta vare på oppsettet',
+        text: 'Oppsettet ligger i denne nettleseren. Lagre det som fil for å ha en kopi eller flytte det til en annen maskin, og last det inn igjen her.',
+      },
+      simulation: {
+        title: 'Se resultatet',
+        text: 'Simulering-fanen viser hvor pengene kommer fra hvert år, og deretter hver konto, der den tykke streken er medianen og de tynne strekene er enkeltpass. Her velger du hvor langt frem du vil se.',
+      },
+    },
     sections: 'Visninger',
     simulation: 'Simulering',
     input: 'Inndata',
@@ -267,7 +338,6 @@ export const translations = {
     otp: 'Tjenestepensjon (OTP)',
     folketrygd: 'Folketrygden',
     withdrawal: 'Uttak',
-    summary: 'Oppsummering',
     g: 'G (grunnbeløpet)',
     me: 'Deg selv',
     birthYear: 'Fødselsår',
@@ -284,12 +354,11 @@ export const translations = {
       otp: 'Legg til OTP',
       folketrygd: 'Legg til folketrygd',
       withdrawal: 'Legg til uttak',
-      summary: 'Legg til oppsummering',
     } satisfies Record<AddableType, string>,
     deleteBox: (name: string) => `Slett ${name}`,
     deleteConnector: 'Slett connector',
     inputHelp:
-      'Dra fra en prikk til en prikk med samme form. Penger går fra venstre mot høyre, avkastning kommer ovenfra, lønn gir OTP og Folketrygden grunnlaget deres, og en oppsummering leser det du kobler til den.',
+      'Dra fra en prikk til en prikk med samme form. Penger går fra venstre mot høyre, avkastning kommer ovenfra, og lønn gir OTP og Folketrygden grunnlaget deres.',
     wireMoney: 'Penger',
     wireInfluence: 'Påvirkning',
     wireBasis: 'Grunnlag',
@@ -337,13 +406,13 @@ export const translations = {
     withdrawalMode: 'Angis som',
     modeAmount: 'Beløp i måneden',
     modePercent: 'Prosent av kontoene',
-    perMonth: 'Beløp i måneden (før skatt)',
-    percent: 'Prosent i året',
-    withdrawalNote: 'Pensjon som kobles inn teller først. Det som mangler tas fra kontoene etter størrelse, og det som er til overs går videre.',
-    summaryNote:
-      'Viser boksene du kobler til samlet i simuleringen. Den flytter ingen penger. Folketrygden er beregnet og ikke penger, så den teller i uttakene, men ikke i totalen.',
+    perMonth: 'Beløp i måneden (etter skatt)',
+    percent: 'Prosent i året (før skatt)',
+    pensionTax: 'Skatt på pensjon (%)',
+    withdrawalNote:
+      'Pensjon som kobles inn teller først, etter skatt. Det som mangler tas fra kontoene etter størrelse, og det som er til overs går videre. En ASK betaler ingen skatt på innskudd og skjermingsfradrag, og deretter skatten på gevinst som står på kontoen. En vanlig konto betaler ingen.',
     plan: 'Plan',
-    planNote: 'Forventet forløp uten markedssvingninger, i dagens kroner. Pensjon og uttak er før skatt. Beløpene er avrundet.',
+    planNote: 'Forventet forløp uten markedssvingninger, i dagens kroner. Pensjon står før skatt og uttak etter skatt, med skatten på egen linje. Beløpene er avrundet.',
     planToAge: (age: number) => `Planen går til ${age} år.`,
     planForYears: (years: number) => `Planen går ${years} år frem.`,
     planEmpty: 'Planen vises når det ligger en konto eller en pensjon på tegneflaten.',
@@ -381,6 +450,11 @@ export const translations = {
         changes: ({ from, amount, per }) => `Uttak fra ${from} blir ${amount} ${per}`,
         stops: ({ from }) => `Uttak fra ${from} stopper`,
       },
+      tax: {
+        starts: ({ from, amount, per }) => `Skatt på ${from} er ${amount} ${per}`,
+        changes: ({ from, amount, per }) => `Skatt på ${from} blir ${amount} ${per}`,
+        stops: ({ from }) => `Skatt på ${from} stopper`,
+      },
       surplus: {
         starts: ({ to, amount, per }) => (to ? `Overskudd på ${amount} ${per} går til ${to}` : `Overskudd på ${amount} ${per} regnes som brukt`),
         changes: ({ to, amount, per }) => (to ? `Overskudd til ${to} blir ${amount} ${per}` : `Overskudd som regnes som brukt blir ${amount} ${per}`),
@@ -414,12 +488,18 @@ export const translations = {
     resume: 'Fortsett',
     simulationLegend:
       'Alle beløp er i dagens kroner. Den tykke streken er medianen av alle passene. De tynne strekene er enkeltpass.',
-    overviewLegend:
-      'Den tykke streken er totalen for boksene som er koblet hit. Den stiplede streken er det som er igjen av det du har satt inn, så avstanden mellom dem er avkastningen.',
-    overviewShieldLegend: 'Den prikkede streken er ubrukt skjermingsfradrag, som gir lavere skatt på gevinst.',
-    withdrawnInTotal: (amount: string) => `Tatt ut til sammen: ${amount}`,
-    withdrawalsPerMonth: 'Uttak i kroner i måneden',
+    depositsLegend: 'Den stiplede streken er det som er igjen av det du har satt inn, så avstanden opp til den tykke streken er avkastningen.',
+    shieldLegend: 'Den prikkede streken er ubrukt skjermingsfradrag, som gir lavere skatt på gevinst.',
+    withdrawnInTotal: (amount: string) => `Utbetalt til sammen: ${amount}`,
+    withdrawnAndTax: (amount: string, tax: string) => `Utbetalt til sammen: ${amount} etter skatt, og ${tax} i skatt`,
+    withdrawalsPerMonth: 'Hvor pengene kommer fra, i kroner i måneden etter skatt, med skatten på toppen. Gjennomsnitt av alle passene.',
     otherBoxes: 'Andre',
+    need: 'Behov',
+    surplus: 'Til overs',
+    surplusGoesTo: (name: string) => `Går videre til ${name}`,
+    surplusIsSpent: 'Regnes som brukt',
+    short: 'Mangler',
+    tax: 'Skatt',
     medianAfter: (years: number, amount: string) => `Median etter ${years} år: ${amount}`,
     medianAtAge: (age: number, amount: string) => `Median ved ${age} år: ${amount}`,
     balanceAtAge: (age: number, amount: string) => `Beholdning ved ${age} år: ${amount}`,

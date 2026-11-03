@@ -1,16 +1,18 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import ErrorBoundary from './components/ErrorBoundary';
 import FileButtons from './components/FileButtons';
 import Footer from './components/Footer';
 import Header from './components/Header';
 import LanguagePicker from './components/LanguagePicker';
 import Tabs from './components/Tabs';
+import Tour from './components/Tour';
 import { LanguageContext, translations, useLanguage } from './i18n';
 import InputTab from './input/InputTab';
 import { useGraph, useSimulationInput } from './input/useGraph';
 import { today } from './model/dates';
 import { parseGraph, serializeGraph } from './model/storage';
 import SimulationTab from './simulation/SimulationTab';
+import { isNewHere, markTourSeen, welcomeSteps } from './welcomeTour';
 
 const tabs = ['simulation', 'input'] as const;
 type Tab = (typeof tabs)[number];
@@ -19,10 +21,16 @@ export default function App() {
   const [language, setLanguage] = useLanguage();
   const [activeTab, setActiveTab] = useState<Tab>('simulation');
   const t = translations[language];
+  // Asked before the first save below, which would make everyone look like they have been here before.
+  const [touring, setTouring] = useState(isNewHere);
   const { graph, setGraph, recovered } = useGraph(t.defaultNames);
   const input = useSimulationInput(graph);
   const [filesLoaded, setFilesLoaded] = useState(0);
   const [unreadableFile, setUnreadableFile] = useState(false);
+
+  useEffect(() => {
+    if (touring) markTourSeen();
+  }, [touring]);
 
   // It only asks once it knows that the file can be read, and nothing changes until the answer is yes.
   function loadFile(text: string) {
@@ -46,6 +54,9 @@ export default function App() {
           onLoad={loadFile}
         />
         <LanguagePicker language={language} onChange={setLanguage} />
+        <button type="button" className="tour-open" aria-label={t.tourOpen} title={t.tourOpen} onClick={() => setTouring(true)}>
+          ?
+        </button>
       </Header>
 
       <Tabs
@@ -92,6 +103,8 @@ export default function App() {
       </main>
 
       <Footer />
+
+      {touring && <Tour steps={welcomeSteps(t, setActiveTab)} onClose={() => setTouring(false)} />}
     </LanguageContext.Provider>
   );
 }

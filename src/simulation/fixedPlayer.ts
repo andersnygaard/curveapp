@@ -1,5 +1,5 @@
 // A player with fixed, made-up numbers, so what shows a simulation can be tested without running one.
-import type { StockSummary } from '../engine/statistics';
+import type { StockSummary, WithdrawalSummary } from '../engine/statistics';
 import { DAYS_PER_YEAR } from '../engine/timeline';
 import { Player } from './player';
 
@@ -19,11 +19,12 @@ interface Options {
   years?: number;
   stocks: FixedStock[];
   gates?: { id: string; name: string; heldShare: number }[];
+  withdrawals?: WithdrawalSummary[];
 }
 
 export const growing = (start: number, rate: number) => (year: number) => start * (1 + rate) ** year;
 
-export function fixedPlayer({ years = 30, stocks, gates = [] }: Options): Player {
+export function fixedPlayer({ years = 30, stocks, gates = [], withdrawals = [] }: Options): Player {
   const sampleDays = Array.from({ length: years + 1 }, (_, year) => Math.round(year * DAYS_PER_YEAR));
   const seriesOf = (stock: FixedStock, scale: number) =>
     Float64Array.from(sampleDays, (_, year) => stock.line(year) * scale);
@@ -43,7 +44,8 @@ export function fixedPlayer({ years = 30, stocks, gates = [] }: Options): Player
       heldShare: null,
       afterTax: null,
       payoutPerYear: null,
-      overview: null,
+      deposits: null,
+      shield: null,
       ...stock.summary,
     };
   });
@@ -52,7 +54,7 @@ export function fixedPlayer({ years = 30, stocks, gates = [] }: Options): Player
   const player = new Player(
     { startMs: START_MS, totalDays: sampleDays[years], sampleDays },
     years,
-    { summary: { passes: 2000, stocks: summaries, gates }, passes },
+    { summary: { passes: 2000, stocks: summaries, gates, withdrawals }, passes },
   );
   player.history = passes.slice(0, COMPLETED_PASSES);
   player.current = passes[COMPLETED_PASSES];

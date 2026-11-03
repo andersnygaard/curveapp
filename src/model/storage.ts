@@ -2,12 +2,12 @@
 import { BOX_TYPES, catalog } from './catalog';
 import { canConnect } from './connections';
 import { createBox, defaultGraph, syncG } from './graph';
-import { fromVersion1, type Version1 } from './migrations';
+import { fromVersion1, fromVersion2, type Version1 } from './migrations';
 import type { DefaultNames, Graph, PlacedBox, Wire } from './types';
 
 const STORAGE_KEY = 'curve.boxes';
 const BACKUP_KEY = 'curve.boxes.backup';
-export const VERSION = 2;
+export const VERSION = 3;
 
 type Stored = { version?: number; boxes?: PlacedBox[]; wires?: Wire[] };
 
@@ -45,10 +45,20 @@ export function parseGraph(text: string, names: DefaultNames): Graph {
     return normalize(boxes.filter(isKnown), wires, names);
   }
   // Boxes from a newer version, or of a kind this version has never heard of, must not be dropped and written over.
-  if (stored.version !== VERSION) throw new Error('Unknown version');
+  if (stored.version !== 2 && stored.version !== VERSION) throw new Error('Unknown version');
   if (!Array.isArray(stored.boxes) || !Array.isArray(stored.wires)) throw new Error('Unreadable boxes');
-  if (!stored.boxes.every(isKnown)) throw new Error('Unknown box type');
-  return normalize(stored.boxes, stored.wires, names);
+  const current = { boxes: stored.boxes, wires: stored.wires };
+  const { boxes, wires } = stored.version === 2 ? fromVersion2(current) : current;
+  if (!boxes.every(isKnown)) throw new Error('Unknown box type');
+  return normalize(boxes, wires, names);
+}
+
+export function hasStoredBoxes(): boolean {
+  try {
+    return localStorage.getItem(STORAGE_KEY) !== null;
+  } catch {
+    return false;
+  }
 }
 
 export interface Loaded {

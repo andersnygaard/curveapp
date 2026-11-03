@@ -1,5 +1,6 @@
 // General rules. Each is one thing that can happen in a day.
 import { OUTSIDE, type Rule } from './engine';
+import { shareLeaving, taxOnDraw } from './norway';
 import { DAYS_PER_YEAR } from './timeline';
 
 export function stepFactor(
@@ -130,29 +131,46 @@ export function payOutOverYears({ stock, to, payments, annualRate, fires, label 
 
 export type Need = { perMonth: number } | { yearlyShareOfAccounts: number };
 
-// The flow that says what a gate has drawn from one account.
-export const drawnFrom = (stock: number) => `drawn:${stock}`;
+// The flows that say what a gate has needed, drawn from one account, passed on and not been able to pay.
+export const neededBy = (gate: number) => `need:${gate}`;
+export const drawnBy = (gate: number, stock: number) => `drawn:${gate}:${stock}`;
+export const passedOnBy = (gate: number) => `surplus:${gate}`;
+export const shortAt = (gate: number) => `short:${gate}`;
+export const taxPaidAt = (gate: number) => `tax:${gate}`;
+
+export interface Pull {
+  stock: number;
+  // 0 for an account without tax on its gain.
+  taxOnGain: number;
+}
 
 export interface GateOptions {
   buffer: number;
-  pulls: number[];
+  pulls: Pull[];
   overflow: number;
   need: Need;
+  // The share of what the gate receives that goes to tax.
+  pensionTax: number;
   startDay: number;
   fires: Uint8Array;
   rank: number;
 }
 
-// What the gate received counts first. Any surplus flows on, and any shortfall is drawn from the accounts by
-// size. Before the start day there is no need, so pension paid early flows straight on.
-export function settleGate({ buffer, pulls, overflow, need, startDay, fires, rank }: GateOptions): Rule {
+// What the gate received counts first, after tax. Any surplus flows on, and any shortfall is drawn from the accounts by
+// size. An amount is what should be left after tax, so more is drawn to pay the tax. A share of the accounts is what is
+// drawn, and the tax comes out of it. Before the start day there is no need, so pension paid early flows straight on.
+export function settleGate({ buffer, pulls, overflow, need, pensionTax, startDay, fires, rank }: GateOptions): Rule {
+  const afterTax = 'perMonth' in need;
   return {
     phase: 'draw',
     rank,
     fires,
     start(world) {
-      const inAccounts = () => pulls.reduce((sum, stock) => sum + world.balances[stock], 0);
+      const { balances, ledger } = world;
+      const inAccounts = () => pulls.reduce((sum, { stock }) => sum + balances[stock], 0);
       let lockedNeed: number | undefined;
+      // Pension can wait here for an account to open, and must not be taxed again each month.
+      let taxedIn = 0;
       return (day) => {
         // A share of the accounts waits until there is something in them, since they may not have opened yet.
         if (day >= startDay && lockedNeed === undefined) {
@@ -160,27 +178,52 @@ export function settleGate({ buffer, pulls, overflow, need, startDay, fires, ran
           else if (inAccounts() > 0) lockedNeed = (need.yearlyShareOfAccounts * inAccounts()) / 12;
         }
         const perMonth = lockedNeed ?? 0;
-        const received = world.balances[buffer];
-        const covered = Math.min(received, perMonth);
+
+        const paidIn = ledger.in[buffer] - taxedIn;
+        taxedIn = ledger.in[buffer];
+        world.tally(taxPaidAt(buffer), world.move(buffer, OUTSIDE, paidIn * pensionTax, 'tax:pension'));
+
+        const received = balances[buffer];
+        const wanted = afterTax ? perMonth : perMonth * (1 - pensionTax);
+        const covered = Math.min(received, wanted);
         world.move(buffer, OUTSIDE, covered, 'spent:pension');
-        if (received > covered) world.move(buffer, overflow, received - covered, 'surplus');
+        if (received > covered) world.tally(passedOnBy(buffer), world.move(buffer, overflow, received - covered, 'surplus'));
 
-        const shortfall = perMonth - covered;
-        if (shortfall <= 0) return;
-        const available = inAccounts();
-        const share = available > 0 ? Math.min(1, shortfall / available) : 0;
+        const shortfall = afterTax ? perMonth - covered : perMonth * (wanted > 0 ? 1 - covered / wanted : 1);
         let drawn = 0;
-        for (const stock of pulls) {
-          const moved = world.move(stock, OUTSIDE, world.balances[stock] * share, 'spent:accounts');
-          world.tally(drawnFrom(stock), moved);
-          drawn += moved;
+        let unmet = 0;
+        if (shortfall > 0) {
+          const accounts = pulls.map(({ stock, taxOnGain }) => ({
+            balance: balances[stock],
+            // Shielding used earlier today is only taken off at the end of the day. Two gates on one account can
+            // therefore both count on it, the one month it runs out.
+            taxFree: ledger.deposits[stock] + ledger.shield[stock],
+            taxOnGain,
+          }));
+          const available = inAccounts();
+          const share = available <= 0 ? 0 : afterTax ? shareLeaving(accounts, shortfall) : Math.min(1, shortfall / available);
+          let beforeTax = 0;
+          pulls.forEach(({ stock }, index) => {
+            const { balance, taxFree, taxOnGain } = accounts[index];
+            const out = balance * share;
+            const tax = taxOnDraw(out, taxFree, taxOnGain);
+            const moved = world.move(stock, OUTSIDE, out - tax, 'spent:accounts');
+            world.tally(drawnBy(buffer, stock), moved);
+            world.tally(taxPaidAt(buffer), world.move(stock, OUTSIDE, tax, 'tax:gain'));
+            drawn += moved;
+            beforeTax += out;
+          });
+          const missing = shortfall - (afterTax ? drawn : beforeTax);
+          if (missing > 0.005) {
+            unmet = missing;
+            world.record('unmet', unmet, buffer);
+            world.tally(shortAt(buffer), unmet);
+            ledger.short[buffer] += unmet;
+            for (const { stock } of pulls) ledger.short[stock] += unmet;
+          }
         }
-
-        const unmet = shortfall - drawn;
-        if (unmet <= 0.005) return;
-        world.record('unmet', unmet, buffer);
-        world.ledger.short[buffer] += unmet;
-        for (const stock of pulls) world.ledger.short[stock] += unmet;
+        // A share of the accounts leaves whatever is left after tax, and that is what it has paid for.
+        world.tally(neededBy(buffer), afterTax ? perMonth : covered + drawn + unmet);
       };
     },
   };

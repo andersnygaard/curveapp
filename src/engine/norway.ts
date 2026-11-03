@@ -123,6 +123,38 @@ export function estimatedDivisor(age: number): number {
   return Math.max(1, 85 - age);
 }
 
+export interface DrawnAccount {
+  balance: number;
+  // What can be drawn before any of it counts as a gain.
+  taxFree: number;
+  taxOnGain: number;
+}
+
+// A withdrawal from an aksjesparekonto counts as deposits first and then as shielding, and only what goes beyond them is
+// a gain. So the first withdrawals are free of tax, and the tax comes later.
+export const taxOnDraw = (drawn: number, taxFree: number, taxOnGain: number) => taxOnGain * Math.max(0, drawn - taxFree);
+
+// The share of every account to draw so that what is left after tax is the amount asked for, or 1 if they cannot pay
+// it. What is left grows in a straight line until an account starts to pay tax, so the answer is found without guessing.
+export function shareLeaving(accounts: DrawnAccount[], amount: number): number {
+  const taxStarts = accounts
+    .filter(({ balance, taxOnGain }) => balance > 0 && taxOnGain > 0)
+    .map(({ balance, taxFree, taxOnGain }) => ({ at: taxFree / balance, slowsBy: taxOnGain * balance }))
+    .filter(({ at }) => at < 1)
+    .sort((a, b) => a.at - b.at);
+  let growth = accounts.reduce((sum, { balance }) => sum + balance, 0);
+  let share = 0;
+  let left = 0;
+  for (const { at, slowsBy } of taxStarts) {
+    const leftThere = left + growth * (at - share);
+    if (leftThere >= amount) break;
+    left = leftThere;
+    share = at;
+    growth -= slowsBy;
+  }
+  return growth > 0 ? Math.min(1, share + (amount - left) / growth) : 1;
+}
+
 interface ShieldOptions {
   stock: number;
   annualRate: number;

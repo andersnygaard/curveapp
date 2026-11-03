@@ -26,9 +26,6 @@ describe('canConnect', () => {
     ['return', 'otp', 'influence'],
     ['income', 'otp', 'basis'],
     ['income', 'folketrygd', 'basis'],
-    ['account', 'summary', 'basis'],
-    ['otp', 'summary', 'basis'],
-    ['folketrygd', 'summary', 'basis'],
   ] as const)('lets %s go to %s as %s', (source, target, kind) => {
     expect(can(source, target, kind)).toBe(true);
   });
@@ -47,11 +44,6 @@ describe('canConnect', () => {
     ['transfer', 'transfer', 'money', 'a chain has no use'],
     ['account', 'account', 'money', 'an account cannot go straight to an account, a transfer says how much'],
     ['income', 'income', 'money', 'an income takes nothing in'],
-    ['account', 'summary', 'money', 'a summary only reads, so no money goes there'],
-    ['income', 'summary', 'basis', 'a summary reads what holds value'],
-    ['withdrawal', 'summary', 'basis', 'a summary reads what holds value'],
-    ['summary', 'account', 'basis', 'a summary gives nothing on'],
-    ['summary', 'otp', 'basis', 'a summary gives nothing on'],
     ['account', 'otp', 'basis', 'only salary gives a pension its basis'],
     ['account', 'folketrygd', 'basis', 'only salary gives a pension its basis'],
   ] as const)('refuses %s to %s as %s, since %s', (source, target, kind, _reason) => {

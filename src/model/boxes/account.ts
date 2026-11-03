@@ -23,7 +23,8 @@ export type AccountData = {
   unusedShield: number;
 };
 
-const taxRateOf = ({ data }: AccountBox) => Math.min(100, Math.max(0, data.taxRate)) / 100;
+// Only an ASK has tax on its gain here, and a regular account pays none when it is drawn on.
+export const taxOnGainOf = ({ data }: AccountBox) => (data.accountType === 'ask' ? Math.min(100, Math.max(0, data.taxRate)) / 100 : 0);
 const inflationOf = ({ data }: AccountBox) => Math.max(-50, data.inflation) / 100;
 
 export const accountSpec: BoxSpec<AccountBox> = {
@@ -42,7 +43,7 @@ export const accountSpec: BoxSpec<AccountBox> = {
     money: { max: MANY, from: ['income', 'transfer', 'budget', 'otp', 'folketrygd', 'withdrawal'] },
     influence: { max: MANY, from: ['return'] },
   },
-  gives: { money: MANY, basis: MANY },
+  gives: { money: MANY },
   holds: true,
   declare(account, context: CompileContext) {
     const { name, startAmount, startDate, currency, accountType } = account.data;
@@ -52,7 +53,7 @@ export const accountSpec: BoxSpec<AccountBox> = {
       currency,
       opening: Math.max(0, startAmount),
       openDay: context.timeline.dayOf(validDate(startDate)),
-      taxOnGain: accountType === 'ask' ? taxRateOf(account) : undefined,
+      taxOnGain: accountType === 'ask' ? taxOnGainOf(account) : undefined,
     });
   },
   build(account, context) {

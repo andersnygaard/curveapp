@@ -33,7 +33,7 @@ const folketrygd = (startAmount = 0, payoutAge = 67): Box => ({
 const gate = (startAge = 60, perMonth = 20_000): Box => ({
   id: 'w',
   type: 'withdrawal',
-  data: { name: 'Living', startAge, mode: 'amount', perMonth, percent: 4 },
+  data: { name: 'Living', startAge, mode: 'amount', perMonth, percent: 4, pensionTax: 0 },
 });
 
 const money = (source: string, target: string): Wire => wireOf(source, target, 'money');
@@ -144,6 +144,35 @@ describe('what the plan makes of the amounts', () => {
     const date = atAge(dates, 67);
     expect(lineIn(date, 'surplus', 'starts')).toMatchObject({ to: null });
     expect(lineIn(atAge(dates, 74), 'surplus', 'stops')).toBeDefined();
+  });
+});
+
+describe('the tax in the plan', () => {
+  it('has a line of its own for tax on pension, and says what the pension covers after it', () => {
+    const living = { id: 'w', type: 'withdrawal', data: { name: 'Living', startAge: 67, mode: 'amount', perMonth: 2_000, percent: 4, pensionTax: 25 } } as Box;
+    const { dates } = planOf({ boxes: [me(), g(), account(), folketrygd(1_200_000, 67), living], wires: [money('f', 'w'), money('w', 'a')] });
+    const date = atAge(dates, 67);
+    const pension = lineIn(date, 'pension', 'starts', 'National')!;
+    expect(lineIn(date, 'tax', 'starts', 'Living')!.amount).toBeCloseTo(pension.amount * 0.25, 0);
+    expect(lineIn(date, 'surplus', 'starts')!.amount).toBeCloseTo(pension.amount * 0.75 - 2_000, 0);
+  });
+
+  it('has no tax line when nothing is taxed', () => {
+    const { dates } = planOf({ boxes: [me(40), account(1_000_000), gate(40, 10_000)], wires: [money('a', 'w')] });
+    expect(dates.flatMap((date) => date.lines).some((line) => line.flow === 'tax')).toBe(false);
+  });
+
+  it('says what a withdrawal leaves and what it costs in tax, once the deposits are used up', () => {
+    const ask: Box = {
+      id: 'a',
+      type: 'account',
+      data: { name: 'Fund', startAmount: 100_000, startDate: START, currency: 'NOK', accountType: 'ask', taxRate: 50, inflation: 0, shieldRate: 0, unusedShield: 0 },
+    };
+    const market: Box = { id: 'm', type: 'return', data: { name: 'Market', annualReturn: 100, returnInterval: 'yearly', standardDeviation: 0 } };
+    const { dates } = planOf({ boxes: [me(40), ask, market, gate(40, 200_000)], wires: [money('a', 'w'), wireOf('m', 'a', 'influence')] });
+    const lines = dates.flatMap((date) => date.lines);
+    expect(lines.find((line) => line.flow === 'withdrawal')?.from).toBe('Fund');
+    expect(lines.find((line) => line.flow === 'tax')?.from).toBe('Fund');
   });
 });
 

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { shareLeaving, taxOnDraw } from './norway';
 import { OUTSIDE, runPass, World, type Model, type Stock } from './engine';
 import { moveBetween } from './rules';
 import { noNoise, passNoise } from './random';
@@ -15,7 +16,7 @@ function modelOf(stocks: Stock[], timeline = new Timeline(START, 730), rules: Mo
     rules,
     sampleDays: [0, 100, 200, 400, 730],
     charted: stocks.flatMap((stock, index) => (stock.hidden ? [] : [index])),
-    overviews: [],
+    gateSources: [],
     random: false,
   };
 }
@@ -31,6 +32,42 @@ const stock = (id: string, extra: Partial<Stock> = {}): Stock => ({
 });
 
 const count = (fires: Uint8Array) => fires.reduce((sum, value) => sum + value, 0);
+
+describe('the share of the accounts that leaves an amount after tax', () => {
+  const account = (balance: number, taxFree = balance, taxOnGain = 0) => ({ balance, taxFree, taxOnGain });
+
+  it('is the plain share when nothing is taxed', () => {
+    expect(shareLeaving([account(1_000), account(3_000)], 1_000)).toBe(0.25);
+  });
+
+  it('stays the plain share until the tax starts', () => {
+    expect(shareLeaving([account(1_000, 500, 0.5)], 500)).toBe(0.5);
+  });
+
+  it('draws more once the tax has started', () => {
+    // 500 is free. The next 100 needs 200 before tax.
+    expect(shareLeaving([account(1_000, 500, 0.5)], 600)).toBeCloseTo(0.7, 10);
+  });
+
+  it('works through accounts that start to pay tax at different points', () => {
+    const accounts = [account(1_000, 200, 0.5), account(1_000, 600, 0.25)];
+    const share = shareLeaving(accounts, 1_000);
+    const left = accounts.reduce((sum, { balance, taxFree, taxOnGain }) => {
+      const out = balance * share;
+      return sum + out - taxOnDraw(out, taxFree, taxOnGain);
+    }, 0);
+    expect(left).toBeCloseTo(1_000, 8);
+  });
+
+  it('is everything when they cannot pay it', () => {
+    expect(shareLeaving([account(1_000, 0, 0.5)], 600)).toBe(1);
+  });
+
+  it('copes with an empty account and with tax that takes it all', () => {
+    expect(shareLeaving([account(0, 0, 0.5), account(1_000)], 500)).toBe(0.5);
+    expect(shareLeaving([account(1_000, 0, 1)], 500)).toBe(1);
+  });
+});
 
 describe('Observing a pass', () => {
   const fires = new Timeline(START, 730).fires({ every: 'monthly' });
@@ -178,7 +215,8 @@ describe('summarize', () => {
     closing: new Float64Array(1),
     depositsAtEnd: new Float64Array(1),
     shieldAtEnd: new Float64Array(1),
-    overviews: [],
+    deposits: [null],
+    shield: [null],
   });
 
   it('takes the median of each sample and leaves exactly half on each side', () => {

@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
-import { expect, fn, userEvent, within } from 'storybook/test';
+import { expect, fn, userEvent, waitFor, within } from 'storybook/test';
+import type { WithdrawalSummary } from '../engine/statistics';
 import { fixedPlayer, growing, type FixedStock } from './fixedPlayer';
 import SimulationView from './SimulationView';
 
@@ -141,79 +142,106 @@ export const ClosesEarly: Story = {
 };
 
 const years = 30;
-const days = Float64Array.from({ length: years }, (_, year) => (year + 0.5) * 365.25);
 const paying = (level: number, from: number, until: number) =>
   Float64Array.from({ length: years }, (_, year) => (year >= from && year < until ? level : 0));
-const lines = [
-  { name: 'OTP', slot: 0, perMonth: paying(43_000, 15, 25) },
-  { name: 'National pension', slot: 1, perMonth: paying(20_000, 15, years) },
-  { name: 'Fund', slot: 2, perMonth: paying(20_000, 25, years) },
-];
+const withdrawal: WithdrawalSummary = {
+  id: 'living',
+  name: 'Living costs',
+  currency: 'NOK',
+  yearEdges: Float64Array.from({ length: years + 1 }, (_, year) => year * 365.25),
+  sources: [
+    { name: 'OTP', slot: 0, perMonth: paying(43_000, 15, 25) },
+    { name: 'National pension', slot: 1, perMonth: paying(20_000, 15, years) },
+    { name: 'Fund', slot: 2, perMonth: paying(20_000, 25, years) },
+  ],
+  need: paying(40_000, 15, years),
+  surplus: paying(23_000, 15, 25),
+  short: paying(0, 0, 0),
+  tax: paying(0, 0, 0),
+  surplusTo: 'Fund',
+  withdrawn: 7_560_000,
+  taxPaid: 0,
+  perMonthMax: 66_000,
+};
 
-const summaryStock = (hasBalance: boolean): FixedStock => ({
-  id: 'summary',
-  name: 'All savings',
-  line: hasBalance ? growing(300_000, 0.04) : () => NaN,
-  summary: {
-    overview: {
-      hasBalance,
-      deposits: Float64Array.from({ length: years + 1 }, () => 300_000),
-      shield: null,
-      withdrawn: 7_560_000,
-      days,
-      lines,
-      perMonthMax: 45_000,
-    },
+export const WithAWithdrawal: Story = {
+  args: {
+    player: fixedPlayer({ stocks: [fund], withdrawals: [withdrawal], gates: [{ id: 'living', name: 'Living costs', heldShare: 0.9 }] }),
   },
-});
-
-export const WithASummary: Story = {
-  args: { player: fixedPlayer({ stocks: [summaryStock(true), fund] }) },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await expect(canvas.getByRole('heading', { name: 'All savings' })).toBeVisible();
-    await expect(canvas.getByText(/The dashed line is what is left of what you put in/)).toBeVisible();
-    await expect(canvas.queryByText(/The dotted line/)).toBeNull();
-    await expect(canvas.getByText(`Withdrawn in total: ${money.format(7_560_000)}`)).toBeVisible();
-    await expect(canvas.getByText('Withdrawals in kroner a month')).toBeVisible();
-    await expect(canvas.getAllByRole('listitem').map((item) => item.textContent)).toEqual(['OTP', 'National pension', 'Fund']);
-    // The accounts keep their own graphs below it.
-    await expect(canvas.getByRole('heading', { name: 'Fund' })).toBeVisible();
-    await expect(canvasElement.querySelectorAll('canvas')).toHaveLength(2);
+    const heading = canvas.getByRole('heading', { name: 'Living costs' });
+    await expect(heading).toBeVisible();
+    await expect(canvas.getByText(`Paid out in total: ${money.format(7_560_000)}`)).toBeVisible();
+    await expect(canvas.getByText(/Where the money comes from/)).toBeVisible();
+    // It comes first, and the accounts keep their own graphs below it.
+    const account = canvas.getByRole('heading', { name: 'Fund' });
+    await expect(heading.compareDocumentPosition(account) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    await expect(canvasElement.querySelectorAll('canvas')).toHaveLength(1);
+    await waitFor(() => expect(canvasElement.querySelectorAll('.flows-layer')).toHaveLength(3));
+    await expect(canvas.getByText(/Living costs is covered for the whole period in 90\s?% of the passes\./)).toBeVisible();
   },
 };
 
-// With nothing but Folketrygden there is no money to add up, so there is no total to show.
-export const SummaryOfCalculatedBalances: Story = {
-  args: { player: fixedPlayer({ stocks: [summaryStock(false)] }) },
+export const AWithdrawalWithTax: Story = {
+  args: {
+    player: fixedPlayer({
+      stocks: [fund],
+      withdrawals: [{ ...withdrawal, tax: paying(9_000, 15, years), taxPaid: 1_800_000, perMonthMax: 75_000 }],
+    }),
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await expect(canvas.getByRole('heading', { name: 'All savings' })).toBeVisible();
-    await expect(canvas.queryByText(/Median after/)).toBeNull();
-    await expect(canvas.queryByText(/The dashed line/)).toBeNull();
-    await expect(canvasElement.querySelector('canvas')).toBeNull();
-    await expect(canvas.getByText('Withdrawals in kroner a month')).toBeVisible();
+    await expect(canvas.getByText(`Paid out in total: ${money.format(7_560_000)} after tax, and ${money.format(1_800_000)} in tax`)).toBeVisible();
+    await waitFor(() => expect(canvasElement.querySelector('.flows-tax')).not.toBeNull());
   },
 };
 
-export const SummaryWithShielding: Story = {
+export const EachWithdrawalHasItsOwn: Story = {
+  args: {
+    player: fixedPlayer({ stocks: [fund], withdrawals: [withdrawal, { ...withdrawal, id: 'trips', name: 'Trips', surplusTo: null }] }),
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByRole('heading', { name: 'Living costs' })).toBeVisible();
+    await expect(canvas.getByRole('heading', { name: 'Trips' })).toBeVisible();
+    await waitFor(() => expect(canvasElement.querySelectorAll('.flows-need')).toHaveLength(2));
+  },
+};
+
+export const WithoutAWithdrawal: Story = {
+  play: async ({ canvasElement }) => {
+    await expect(canvasElement.querySelector('.withdrawal')).toBeNull();
+    await expect(within(canvasElement).getByText(/The thick line is the median/)).toBeVisible();
+  },
+};
+
+export const AnAskShowsDepositsAndShielding: Story = {
   args: {
     player: fixedPlayer({
       stocks: [
         {
-          ...summaryStock(true),
+          ...fund,
           summary: {
-            overview: {
-              ...summaryStock(true).summary!.overview!,
-              shield: Float64Array.from({ length: years + 1 }, (_, year) => year * 2_000),
-            },
+            deposits: Float64Array.from({ length: years + 1 }, () => 100_000),
+            shield: Float64Array.from({ length: years + 1 }, (_, year) => year * 2_000),
           },
         },
       ],
     }),
   },
   play: async ({ canvasElement }) => {
-    await expect(within(canvasElement).getByText(/The dotted line is the unused shielding deduction/)).toBeVisible();
+    const canvas = within(canvasElement);
+    await expect(canvas.getByText(/The dashed line is what is left of what you put in/)).toBeVisible();
+    await expect(canvas.getByText(/The dotted line is the unused shielding deduction/)).toBeVisible();
+  },
+};
+
+export const ARegularAccountDoesNot: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.queryByText(/The dashed line/)).toBeNull();
+    await expect(canvas.queryByText(/The dotted line/)).toBeNull();
   },
 };
 

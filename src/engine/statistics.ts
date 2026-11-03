@@ -1,5 +1,6 @@
 // What many passes add up to. The median, the share that holds and the scale are all read from real passes.
 import type { Model, PassResult } from './engine';
+import { neededBy, passedOnBy, shortAt, taxPaidAt } from './rules';
 import type { Timeline } from './timeline';
 
 // The most extreme passes may leave the top of the graph, which keeps the rest of the fan readable. Over many
@@ -22,28 +23,37 @@ export interface StockSummary {
   heldShare: number | null;
   afterTax: number | null;
   payoutPerYear: number | null;
-  overview: OverviewSummary | null;
+  // What is left of what was put in. Null where it means nothing, which is without tax on the gain.
+  deposits: Float64Array | null;
+  // Null when there is none, so there is nothing to draw.
+  shield: Float64Array | null;
 }
 
-export interface OverviewLine {
+export interface WithdrawalSource {
   name: string;
-  // Its place among the lines, including those that never pay, so that it stays the same one.
+  // Its place among the sources, including those that never pay, so that it stays the same one.
   slot: number;
   perMonth: Float64Array;
 }
 
-export interface OverviewSummary {
-  // False when it reads nothing but calculated balances, so there is no total to show.
-  hasBalance: boolean;
-  deposits: Float64Array;
-  // Null when none of the boxes has any, so there is nothing to draw.
-  shield: Float64Array | null;
-  // All that has left the boxes over the whole period.
+// What a gate has to pay and what it is paid from, after tax, in kroner a month for each calendar year. The values are
+// means over the passes and not medians, since means add up: the sources always come to the need, plus surplus, less short.
+export interface WithdrawalSummary {
+  id: string;
+  name: string;
+  currency: string;
+  // Where each calendar year begins, and last where the final one ends.
+  yearEdges: Float64Array;
+  // Only the sources that pay something.
+  sources: WithdrawalSource[];
+  need: Float64Array;
+  surplus: Float64Array;
+  short: Float64Array;
+  tax: Float64Array;
+  surplusTo: string | null;
+  // All that the sources have paid over the whole period after tax, and the tax on top of it.
   withdrawn: number;
-  // The middle of each calendar year, which is what the lines have one value for.
-  days: Float64Array;
-  // Only the lines that pay something.
-  lines: OverviewLine[];
+  taxPaid: number;
   perMonthMax: number;
 }
 
@@ -57,6 +67,7 @@ export interface Summary {
   passes: number;
   stocks: StockSummary[];
   gates: GateSummary[];
+  withdrawals: WithdrawalSummary[];
 }
 
 function medianOf(values: Float64Array): number {
@@ -124,93 +135,96 @@ function medianAfterTax(model: Model, results: PassResult[], stock: number, char
   return Number.isNaN(value) ? null : value;
 }
 
-// The middle day of each calendar year, and how many monthly payments the period has room for in it.
+// Where each calendar year begins, and how many monthly payments the period has room for in it.
 function calendarYears(timeline: Timeline) {
   const count = timeline.yearIndex(timeline.days) + 1;
-  const first = new Float64Array(count).fill(Infinity);
-  const last = new Float64Array(count);
+  const edges = new Float64Array(count + 1).fill(Infinity);
   const months = new Float64Array(count);
   const paydays = timeline.fires({ every: 'monthly' });
   for (let day = 0; day <= timeline.days; day++) {
     const year = timeline.yearIndex(day);
-    first[year] = Math.min(first[year], day);
-    last[year] = day;
+    edges[year] = Math.min(edges[year], day);
     months[year] += paydays[day];
   }
-  return { days: first.map((day, year) => (day + last[year]) / 2), months };
+  edges[count] = timeline.days;
+  return { edges, months };
 }
 
-function summarizeOverview(model: Model, results: PassResult[], index: number, earlier?: StockSummary): StockSummary {
-  const { id, name, stocks, lines } = model.overviews[index];
-  const samples = model.sampleDays.length;
-  const totalOf: SeriesOf = (result) => result.overviews[index].total;
-  const median = medianSeries(results, totalOf, samples);
-  const deposits = medianSeries(results, (result) => result.overviews[index].deposits, samples);
-  const shield = medianSeries(results, (result) => result.overviews[index].shield, samples);
-  const { days, months } = calendarYears(model.timeline);
+function summarizeWithdrawal(model: Model, results: PassResult[], index: number, earlier?: Summary): WithdrawalSummary {
+  const { gate, sources, surplusTo } = model.gateSources[index];
+  const { id, name, currency } = model.stocks[gate];
+  const { edges, months } = calendarYears(model.timeline);
   const flowOf = (result: PassResult, label: string) => result.ledger.flows.get(label);
+  const perMonthOf = (label: string, keeps = 1) =>
+    Float64Array.from(months, (paydays, year) =>
+      paydays > 0 ? (keeps * results.reduce((sum, result) => sum + (flowOf(result, label)?.[year] ?? 0), 0)) / results.length / paydays : 0,
+    );
   const allOf = (flow?: Float64Array) => flow?.reduce((all, amount) => all + amount, 0) ?? 0;
 
-  const paying = lines
-    .map(({ name: lineName, label }, slot): OverviewLine => {
-      const perYear = (year: number) => medianOf(Float64Array.from(results, (result) => flowOf(result, label)?.[year] ?? 0));
-      return { name: lineName, slot, perMonth: days.map((_, year) => (months[year] > 0 ? perYear(year) / months[year] : 0)) };
-    })
-    .filter((line) => peak(line.perMonth) > 0);
-  const withdrawn = medianOf(
-    Float64Array.from(results, (result) => lines.reduce((sum, { label }) => sum + allOf(flowOf(result, label)), 0)),
+  const paying = sources
+    .map(({ name: sourceName, label, keeps }, slot): WithdrawalSource => ({ name: sourceName, slot, perMonth: perMonthOf(label, keeps) }))
+    .filter((source) => peak(source.perMonth) > 0);
+  const need = perMonthOf(neededBy(gate));
+  const tax = perMonthOf(taxPaidAt(gate));
+  const highest = months.map((_, year) =>
+    Math.max(paying.reduce((sum, source) => sum + source.perMonth[year], 0), need[year]) + tax[year],
   );
 
   return {
     id,
     name,
-    currency: model.stocks[stocks[0]]?.currency ?? 'NOK',
-    calculated: false,
-    median,
-    yMax: earlier?.yMax ?? Math.max(scaleOf(results, totalOf, median), Math.max(peak(deposits), peak(shield)) * SCALE_MARGIN),
-    lastValue: lastFinite(median),
-    closeDay: null,
-    heldShare: null,
-    afterTax: null,
-    payoutPerYear: null,
-    overview: {
-      hasBalance: stocks.length > 0,
-      deposits,
-      shield: peak(shield) > 0 ? shield : null,
-      withdrawn,
-      days,
-      lines: paying,
-      perMonthMax:
-        earlier?.overview?.perMonthMax ?? Math.max(1, ...paying.map((line) => peak(line.perMonth) * SCALE_MARGIN)),
-    },
+    currency,
+    yearEdges: edges,
+    sources: paying,
+    need,
+    surplus: perMonthOf(passedOnBy(gate)),
+    short: perMonthOf(shortAt(gate)),
+    tax,
+    surplusTo,
+    withdrawn: medianOf(
+      Float64Array.from(results, (result) =>
+        sources.reduce((sum, { label, keeps = 1 }) => sum + keeps * allOf(flowOf(result, label)), 0),
+      ),
+    ),
+    taxPaid: medianOf(Float64Array.from(results, (result) => allOf(flowOf(result, taxPaidAt(gate))))),
+    perMonthMax:
+      earlier?.withdrawals.find((withdrawal) => withdrawal.id === id)?.perMonthMax ?? Math.max(1, peak(highest) * SCALE_MARGIN),
   };
 }
 
-// The scale is kept from the first summary, so the graph does not jump while the median settles. Overviews go first.
+// The scale is kept from the first summary, so the graph does not jump while the median settles.
 export function summarize(model: Model, results: PassResult[], earlier?: Summary): Summary {
   const samples = model.sampleDays.length;
-  const overviews = model.overviews.map((_, index) => summarizeOverview(model, results, index, earlier?.stocks[index]));
   const stocks = model.charted.map((stock, chart): StockSummary => {
-    const { id, name, currency, unit, canRunOut, closeDay } = model.stocks[stock];
+    const { id, name, currency, unit, canRunOut, closeDay, taxOnGain } = model.stocks[stock];
     const seriesOf: SeriesOf = (result) => result.series[chart];
     const median = medianSeries(results, seriesOf, samples);
+    const taxed = taxOnGain !== undefined;
+    const deposits = taxed ? medianSeries(results, (result) => result.deposits[chart]!, samples) : null;
+    const shield = taxed ? medianSeries(results, (result) => result.shield[chart]!, samples) : null;
     return {
       id,
       name,
       currency,
       calculated: unit === 'notional',
       median,
-      yMax: earlier?.stocks[overviews.length + chart].yMax ?? scaleOf(results, seriesOf, median),
+      yMax:
+        earlier?.stocks[chart].yMax ??
+        Math.max(scaleOf(results, seriesOf, median), Math.max(peak(deposits ?? []), peak(shield ?? [])) * SCALE_MARGIN),
       lastValue: lastFinite(median),
       closeDay: closeDay ?? null,
       heldShare: canRunOut ? shareHeld(results, stock) : null,
       afterTax: medianAfterTax(model, results, stock, chart),
       payoutPerYear: medianPayout(results, stock),
-      overview: null,
+      deposits,
+      shield: peak(shield ?? []) > 0 ? shield : null,
     };
   });
   const gates = model.stocks.flatMap((stock, index): GateSummary[] =>
     stock.hidden && stock.canRunOut ? [{ id: stock.id, name: stock.name, heldShare: shareHeld(results, index) }] : [],
   );
-  return { passes: results.length, stocks: [...overviews, ...stocks], gates };
+  const withdrawals = model.gateSources
+    .map((_, index) => summarizeWithdrawal(model, results, index, earlier))
+    .filter((withdrawal) => withdrawal.sources.length > 0);
+  return { passes: results.length, stocks, gates, withdrawals };
 }
