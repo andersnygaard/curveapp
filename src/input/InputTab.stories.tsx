@@ -15,10 +15,10 @@ function withPension(): Graph {
   return { ...graph, boxes: syncG([...graph.boxes, otp], names) };
 }
 
-function Tab({ recovered = false }: { recovered?: boolean }) {
+function Tab({ recovered = false, planOpen = false }: { recovered?: boolean; planOpen?: boolean }) {
   const [graph, setGraph] = useState(withPension);
   const input = useSimulationInput(graph);
-  return <InputTab graph={graph} setGraph={setGraph} input={input} recovered={recovered} />;
+  return <InputTab graph={graph} setGraph={setGraph} input={input} recovered={recovered} planOpen={planOpen} />;
 }
 
 const meta: Meta<typeof Tab> = {
@@ -97,23 +97,6 @@ export const WiringSalaryFromTheRoundDot: Story = {
   },
 };
 
-export const WiringASummary: Story = {
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await ready(canvasElement);
-    await userEvent.click(canvas.getByRole('button', { name: 'Add summary' }));
-    const warning = translations.en.diagnostics.notConnected;
-    await waitFor(() => expect(canvasElement.querySelector('.box-summary .box-warning')).toHaveTextContent(warning));
-    // Long enough for the canvas to settle after making room for the new box.
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    const money = wires(canvasElement, 'money');
-    await drawWire(canvasElement, '.box-account .port-money.source', '.box-summary .port-basis');
-    await waitFor(() => expect(wires(canvasElement, 'basis')).toBe(1));
-    await expect(wires(canvasElement, 'money')).toBe(money);
-    await waitFor(() => expect(canvasElement.querySelector('.box-summary .box-warning')).toBeNull());
-  },
-};
-
 export const RefusedWires: Story = {
   play: async ({ canvasElement }) => {
     await ready(canvasElement);
@@ -139,16 +122,6 @@ export const WhileDrawing: Story = {
     await expect(opacity('.box-otp .port-basis')).toBe('1');
     await expect(opacity('.box-transfer .port-money')).toBe('1');
     await fireEvent.mouseUp(document, center(source));
-  },
-};
-
-export const TogglingThePlan: Story = {
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await ready(canvasElement);
-    await expect(canvas.getByRole('complementary', { name: 'Plan' })).toBeVisible();
-    await userEvent.click(canvas.getByRole('button', { name: 'Plan' }));
-    await expect(canvas.queryByRole('complementary', { name: 'Plan' })).toBeNull();
   },
 };
 

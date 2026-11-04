@@ -84,12 +84,10 @@ export const WithDeposits: Story = {
     player: fixedPlayer({
       stocks: [
         {
-          id: 'both',
-          name: 'Both accounts',
+          id: 'fund',
+          name: 'Fund',
           line: growing(100_000, 0.04),
-          summary: {
-            overview: { hasBalance: true, deposits: flatDeposits, shield: null, withdrawn: 0, days: new Float64Array(31), lines: [], perMonthMax: 1 },
-          },
+          summary: { deposits: flatDeposits },
         },
       ],
     }),
@@ -117,19 +115,12 @@ export const WithShielding: Story = {
     player: fixedPlayer({
       stocks: [
         {
-          id: 'both',
-          name: 'Both accounts',
+          id: 'fund',
+          name: 'Fund',
           line: growing(100_000, 0.04),
           summary: {
-            overview: {
-              hasBalance: true,
-              deposits: flatDeposits,
-              shield: Float64Array.from({ length: 31 }, (_, year) => year * 1_000),
-              withdrawn: 0,
-              days: new Float64Array(31),
-              lines: [],
-              perMonthMax: 1,
-            },
+            deposits: flatDeposits,
+            shield: Float64Array.from({ length: 31 }, (_, year) => year * 1_000),
           },
         },
       ],

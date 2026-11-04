@@ -7,7 +7,7 @@ import { compile, DEFAULT_YEARS, hasStocks, LAST_AGE, yearsToAge } from './compi
 import { assumptionsOf } from './query';
 import type { Box, SimulationInput } from './types';
 
-export type PlanFlow = 'opening' | 'deposit' | 'pensionDeposit' | 'pension' | 'withdrawal' | 'surplus' | 'move' | 'unmet';
+export type PlanFlow = 'opening' | 'deposit' | 'pensionDeposit' | 'pension' | 'withdrawal' | 'tax' | 'surplus' | 'move' | 'unmet';
 export type PlanChange = 'starts' | 'changes' | 'stops';
 export type PlanInterval = 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'yearly' | 'once';
 
@@ -45,7 +45,8 @@ export interface Plan {
 }
 
 const PAYOUT_PREFIX = 'payout:';
-const FLOW_ORDER: PlanFlow[] = ['opening', 'deposit', 'pensionDeposit', 'pension', 'withdrawal', 'surplus', 'move', 'unmet'];
+const TAX_PREFIX = 'tax:';
+const FLOW_ORDER: PlanFlow[] = ['opening', 'deposit', 'pensionDeposit', 'pension', 'withdrawal', 'tax', 'surplus', 'move', 'unmet'];
 const MONTHS_BETWEEN: Partial<Record<PlanInterval, number>> = { monthly: 1, quarterly: 3, yearly: 12 };
 
 // Smaller payments are what is left of an account or a rounding, not something to plan for.
@@ -81,6 +82,7 @@ interface FlowRun {
 }
 
 function flowOf({ from, to, label }: Recorded, stocks: Stock[]): PlanFlow | null {
+  if (label.startsWith(TAX_PREFIX)) return 'tax';
   if (from !== OUTSIDE && stocks[from].hidden) {
     if (label === 'unmet') return 'unmet';
     // What the pension covers is already said by the lines for each pension.

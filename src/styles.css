@@ -121,11 +121,140 @@ button {
   height: 1.375rem;
 }
 
+.tour-open {
+  width: 1.75rem;
+  height: 1.75rem;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: none;
+  color: var(--ink);
+  font-weight: 600;
+  line-height: 1;
+}
+
+.tour-open:hover {
+  border-color: var(--ink);
+}
+
+.tour-cover,
+.tour-spot,
+.tour-card {
+  position: fixed;
+  z-index: 100;
+}
+
+.tour-cover {
+  inset: 0;
+}
+
+/* The wide shadow is what dims the page, so the lit part follows the target with a soft corner. */
+.tour-spot {
+  border-radius: 6px;
+  box-shadow:
+    0 0 0 2px var(--curve),
+    0 0 0 100vmax rgb(18 38 58 / 55%);
+  pointer-events: none;
+  transition-duration: 200ms;
+  transition-property: top, left, width, height;
+  transition-timing-function: ease-out;
+}
+
+.tour-card {
+  box-sizing: border-box;
+  width: min(22rem, calc(100vw - 1.5rem));
+  padding: 1rem 1.125rem;
+  border-radius: 6px;
+  background: #fff;
+  box-shadow: 0 8px 24px rgb(18 38 58 / 25%);
+  color: var(--ink);
+  animation: tour-card-in 150ms ease-out;
+}
+
+@keyframes tour-card-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tour-spot {
+    transition: none;
+  }
+
+  .tour-card {
+    animation: none;
+  }
+}
+
+.tour-progress {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.tour-title {
+  margin: 0.125rem 0 0.25rem;
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+
+.tour-text {
+  margin: 0;
+  font-size: 0.9375rem;
+}
+
+.tour-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 0.875rem;
+}
+
+.tour-skip {
+  padding: 0.25rem 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+}
+
+.tour-skip:hover {
+  color: var(--ink);
+}
+
+.tour-moves {
+  display: flex;
+  gap: 0.375rem;
+  margin-left: auto;
+}
+
+.input-add.tour-next {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--paper);
+}
+
 .tablist {
   display: flex;
   gap: 0.5rem;
   padding: 0 calc(var(--gutter) - 0.75rem);
   border-bottom: 1px solid var(--line);
+}
+
+/* The line under the tabs runs all the way, past the button that shares the row with them. */
+.tab-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-right: var(--gutter);
+  border-bottom: 1px solid var(--line);
+}
+
+.tab-row .tablist {
+  border-bottom: 0;
 }
 
 .tab {
@@ -186,7 +315,9 @@ button {
   outline-offset: -2px;
 }
 
+/* Graphs read best when they are not too wide. It stays to the left, in line with the tabs. */
 .sim {
+  max-width: 60rem;
   color: var(--ink);
 }
 
@@ -286,14 +417,27 @@ button {
   height: clamp(14rem, 32vh, 22rem);
 }
 
+.withdrawal {
+  --surface: #fff;
+
+  margin-top: 1.5rem;
+  padding: 1rem clamp(0.75rem, 2vw, 1.25rem) 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+}
+
+.withdrawal + .sim-legend {
+  margin-top: 1.5rem;
+}
+
 .flows {
-  margin: 1rem 0 0;
+  margin: 0;
 }
 
 .flows-title {
-  color: var(--ink);
+  color: var(--muted);
   font-size: 0.875rem;
-  font-weight: 600;
 }
 
 .flows-legend {
@@ -315,8 +459,8 @@ button {
 
 .flows-plot {
   position: relative;
-  height: 14rem;
-  margin-top: 0.25rem;
+  height: 18rem;
+  margin-top: 0.5rem;
 }
 
 .flows-plot svg {
@@ -326,24 +470,18 @@ button {
 
 .flows-grid {
   stroke: var(--line);
+  stroke-opacity: 0.7;
 }
 
 .flows-cursor {
-  stroke: var(--muted);
-  stroke-dasharray: 2 3;
+  fill: var(--ink);
+  fill-opacity: 0.08;
+  pointer-events: none;
 }
 
 .flows-tick {
   fill: var(--muted);
   font-size: 12px;
-}
-
-.flows-label {
-  fill: var(--ink);
-  font-size: 12px;
-  paint-order: stroke;
-  stroke: var(--paper);
-  stroke-width: 3px;
 }
 
 .series-1 { --series: var(--series-1); }
@@ -355,25 +493,140 @@ button {
 .series-7 { --series: var(--series-7); }
 .series-8 { --series: var(--series-8); }
 
-.flows-line {
+/* Sweeps in from the left the first time, so the eye follows the years in order. */
+.flows-stack {
+  animation: flows-reveal 700ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+@keyframes flows-reveal {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flows-stack {
+    animation: none;
+  }
+}
+
+.flows-fade-top {
+  stop-color: var(--series);
+  stop-opacity: 0.72;
+}
+
+.flows-fade-bottom {
+  stop-color: var(--series);
+  stop-opacity: 0.4;
+}
+
+.flows-edge {
   fill: none;
   stroke: var(--series);
+  stroke-linejoin: round;
+  stroke-width: 1.5;
+}
+
+/* What goes beyond the need keeps a trace of its colours, greyed out and hatched. */
+.flows-wash {
+  fill: var(--surface, var(--paper));
+  fill-opacity: 0.72;
+}
+
+.flows-hatch {
+  stroke: var(--muted);
+  stroke-opacity: 0.55;
+  stroke-width: 1.25;
+}
+
+.flows-surplus {
+  stroke: var(--muted);
+  stroke-opacity: 0.35;
+}
+
+.flows-wash-short {
+  fill: var(--warning-soft);
+  fill-opacity: 0.8;
+}
+
+.flows-hatch-short {
+  stroke: var(--warning);
+  stroke-opacity: 0.6;
+  stroke-width: 1.25;
+}
+
+/* Tax is money that is gone, so it is plain and without a colour of its own. */
+.flows-tax {
+  fill: var(--muted);
+  fill-opacity: 0.42;
+  stroke: var(--muted);
+  stroke-width: 1;
+}
+
+.flows-need {
+  fill: none;
+  stroke: var(--ink);
   stroke-linejoin: round;
   stroke-width: 2;
 }
 
-.flows-dot {
-  fill: var(--series);
-  stroke: var(--paper);
-  stroke-width: 2;
+.flows-need-label {
+  fill: var(--ink);
+  font-size: 12px;
+  font-weight: 600;
+  paint-order: stroke;
+  stroke: var(--surface, var(--paper));
+  stroke-linejoin: round;
+  stroke-width: 3px;
+  pointer-events: none;
+}
+
+.flows-name {
+  fill: var(--ink);
+  font-size: 13px;
+  font-weight: 500;
+  pointer-events: none;
+}
+
+.flows-name-muted,
+.flows-name-warm {
+  paint-order: stroke;
+  stroke: var(--surface, var(--paper));
+  stroke-linejoin: round;
+  stroke-width: 3px;
+}
+
+.flows-name-muted {
+  fill: var(--muted);
+}
+
+.flows-name-warm {
+  fill: var(--warning);
 }
 
 .flows-swatch {
   flex: none;
   width: 0.75rem;
-  height: 0.1875rem;
+  height: 0.75rem;
   border-radius: 2px;
   background: var(--series);
+}
+
+.flows-swatch-surplus {
+  background: repeating-linear-gradient(45deg, var(--muted) 0 1px, var(--surface, var(--paper)) 1px 4px);
+}
+
+.flows-swatch-tax {
+  background: var(--muted);
+  opacity: 0.6;
+}
+
+.flows-swatch-short {
+  background: repeating-linear-gradient(-45deg, var(--warning) 0 1px, var(--warning-soft) 1px 4px);
 }
 
 .flows-tooltip {
@@ -382,12 +635,14 @@ button {
   display: grid;
   gap: 0.125rem;
   box-sizing: border-box;
-  padding: 0.375rem 0.5rem;
+  padding: 0.5rem 0.625rem;
   border: 1px solid var(--line);
-  border-radius: 4px;
+  border-radius: 6px;
   background: #fff;
+  box-shadow: 0 4px 12px rgb(18 38 58 / 12%);
   color: var(--ink);
   font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
   pointer-events: none;
 }
 
@@ -397,12 +652,28 @@ button {
   gap: 0.375rem;
 }
 
+.flows-row-total {
+  margin-top: 0.125rem;
+  padding-top: 0.125rem;
+  border-top: 1px solid var(--line);
+  font-weight: 600;
+}
+
 .flows-row-name {
   flex: 1;
   overflow: hidden;
   color: var(--muted);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.flows-row-total .flows-row-name {
+  color: var(--ink);
+}
+
+.flows-row-note {
+  padding-left: 1.125rem;
+  color: var(--muted);
 }
 
 .sim-empty {
@@ -510,31 +781,71 @@ button {
   stroke-linecap: round;
 }
 
-.input-plan-toggle {
-  margin-left: auto;
-}
-
-.input-workspace {
-  display: flex;
-  gap: 0.75rem;
-  height: clamp(26rem, calc(100dvh - 18rem), 60rem);
-}
-
 .input-canvas {
-  flex: 1;
-  min-width: 0;
+  height: clamp(26rem, calc(100dvh - 18rem), 60rem);
   border: 1px solid var(--line);
   border-radius: 4px;
 }
 
+/* The plan makes room by itself, so what is beside it gets narrower instead of being covered. */
+.workspace {
+  --plan-width: 23rem;
+
+  display: grid;
+  flex: 1;
+  grid-template-columns: minmax(0, 1fr) 0;
+  transition: grid-template-columns 220ms ease-out;
+}
+
+.workspace-with-plan {
+  grid-template-columns: minmax(0, 1fr) calc(var(--plan-width) + var(--gutter));
+}
+
+/* Anchored to the right edge and cut off on the left, so it comes in from the side as the room opens. */
+.plan-drawer {
+  display: flex;
+  justify-content: flex-end;
+  align-items: flex-start;
+  overflow: clip;
+  padding-right: var(--gutter);
+}
+
+.plan-backdrop {
+  display: none;
+}
+
 .plan {
-  flex: 0 0 23rem;
+  position: sticky;
+  top: 1rem;
+  flex: none;
+  box-sizing: border-box;
+  width: var(--plan-width);
+  max-height: calc(100dvh - 2rem);
+  margin: 2rem 0;
   overflow-y: auto;
   padding: 0.75rem 1rem 1rem;
   border: 1px solid var(--line);
   border-radius: 4px;
   background: #fff;
   font-size: 0.875rem;
+}
+
+.plan-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.plan-close {
+  display: none;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font-size: 1.5rem;
+  line-height: 1;
 }
 
 .plan-title {
@@ -593,19 +904,62 @@ button {
   font-variant-numeric: tabular-nums;
 }
 
+/* There is no width to give up here, so the plan lies over the page and closes from its own button. */
 @media (max-width: 60rem) {
-  .input-workspace {
-    flex-direction: column;
-    height: auto;
+  .workspace,
+  .workspace-with-plan {
+    display: block;
   }
 
-  .input-canvas {
-    flex: none;
-    height: clamp(26rem, calc(100dvh - 18rem), 60rem);
+  .plan-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    display: block;
+    border: 0;
+    background: rgb(18 38 58 / 35%);
+  }
+
+  .plan-drawer {
+    position: fixed;
+    inset: 0 0 0 auto;
+    z-index: 51;
+    display: block;
+    width: min(var(--plan-width), 100vw);
+    overflow-y: auto;
+    padding: 0;
+    background: #fff;
+    animation: plan-slide-in 220ms ease-out;
   }
 
   .plan {
-    flex: none;
+    position: static;
+    width: auto;
+    max-height: none;
+    margin: 0;
+    overflow: visible;
+    border: 0;
+    border-radius: 0;
+  }
+
+  .plan-close {
+    display: block;
+  }
+}
+
+@keyframes plan-slide-in {
+  from {
+    transform: translateX(100%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workspace {
+    transition: none;
+  }
+
+  .plan-drawer {
+    animation: none;
   }
 }
 
@@ -627,7 +981,6 @@ button {
 .box-income,
 .box-return,
 .box-withdrawal,
-.box-summary,
 .box-budget {
   --box-color: var(--curve);
 }

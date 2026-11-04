@@ -40,12 +40,14 @@ export interface Rule {
   start(world: World): (day: number) => void;
 }
 
-// Stocks read together. It moves no money, so it cannot change a result. Each line is a label in the ledger's flows.
-export interface Overview {
-  id: string;
-  name: string;
-  stocks: number[];
-  lines: { name: string; label: string }[];
+// What a gate is paid from, read from the ledger's flows. It moves no money, so it cannot change a result.
+export interface GateSources {
+  gate: number;
+  // Each source is a label in the ledger's flows, in the order the sources stack. Where the flow is before tax, keeps
+  // says how much of it is left after tax.
+  sources: { name: string; label: string; keeps?: number }[];
+  // Where what is left over goes. Null when it counts as spent.
+  surplusTo: string | null;
 }
 
 export interface Model {
@@ -56,7 +58,7 @@ export interface Model {
   sampleDays: number[];
   // Indexes of the stocks that get a graph, in the order they are shown.
   charted: number[];
-  overviews: Overview[];
+  gateSources: GateSources[];
   // False when nothing in the model is random, so one pass says it all.
   random: boolean;
 }
@@ -166,7 +168,8 @@ export class World {
     this.observe?.({ day: this.day, from, to, amount, label });
   }
 
-  // Adds to a flow without reporting it as something that happened, for money already recorded under another label.
+  // Adds to a flow without reporting it as something that happened, for what is recorded under another label or is not
+  // money that moves.
   tally(label: string, amount: number) {
     let flow = this.ledger.flows.get(label);
     if (!flow) {
@@ -186,8 +189,9 @@ export interface PassResult {
   depositsAtEnd: Float64Array;
   // The same for shielding.
   shieldAtEnd: Float64Array;
-  // One per overview, one value per sample. NaN until one of its stocks exists.
-  overviews: { total: Float64Array; deposits: Float64Array; shield: Float64Array }[];
+  // One per charted stock with tax on its gain and null for the others, one value per sample. NaN where the balance is.
+  deposits: (Float64Array | null)[];
+  shield: (Float64Array | null)[];
 }
 
 export function orderRules(rules: Rule[]): Rule[] {
@@ -203,11 +207,10 @@ export function runPass(model: Model, noise: NoiseSource, observe?: Observer): P
   const series = charted.map(() => new Float64Array(sampleDays.length).fill(NaN));
   const depositsAtEnd = new Float64Array(stocks.length);
   const shieldAtEnd = new Float64Array(stocks.length);
-  const overviews = model.overviews.map(() => ({
-    total: new Float64Array(sampleDays.length).fill(NaN),
-    deposits: new Float64Array(sampleDays.length).fill(NaN),
-    shield: new Float64Array(sampleDays.length).fill(NaN),
-  }));
+  const taxedSeries = () =>
+    charted.map((stock) => (stocks[stock].taxOnGain === undefined ? null : new Float64Array(sampleDays.length).fill(NaN)));
+  const deposits = taxedSeries();
+  const shield = taxedSeries();
   let nextSample = 0;
 
   for (let day = 0; day <= timeline.days; day++) {
@@ -219,24 +222,20 @@ export function runPass(model: Model, noise: NoiseSource, observe?: Observer): P
       charted.forEach((stock, index) => {
         // The line goes one sample past the close, so it ends on the balance the stock closed with.
         const closed = nextSample > 0 && sampleDays[nextSample - 1] > (stocks[stock].closeDay ?? Infinity);
-        if (world.isOpen[stock] && !closed) series[index][nextSample] = world.balances[stock];
+        if (!world.isOpen[stock] || closed) return;
+        series[index][nextSample] = world.balances[stock];
+        if (deposits[index]) deposits[index][nextSample] = world.ledger.deposits[stock];
+        if (shield[index]) shield[index][nextSample] = world.ledger.shield[stock];
       });
       if (nextSample === sampleDays.length - 1) {
         depositsAtEnd.set(world.ledger.deposits);
         shieldAtEnd.set(world.ledger.shield);
       }
-      model.overviews.forEach((overview, index) => {
-        const open = overview.stocks.filter((stock) => world.isOpen[stock]);
-        if (open.length === 0) return;
-        overviews[index].total[nextSample] = open.reduce((sum, stock) => sum + world.balances[stock], 0);
-        overviews[index].deposits[nextSample] = open.reduce((sum, stock) => sum + world.ledger.deposits[stock], 0);
-        overviews[index].shield[nextSample] = open.reduce((sum, stock) => sum + world.ledger.shield[stock], 0);
-      });
       nextSample++;
     }
     for (const rule of rules) {
       if (rule.fires[day]) rule.fire(day);
     }
   }
-  return { series, ledger: world.ledger, closing: world.balances, depositsAtEnd, shieldAtEnd, overviews };
+  return { series, ledger: world.ledger, closing: world.balances, depositsAtEnd, shieldAtEnd, deposits, shield };
 }

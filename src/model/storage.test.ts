@@ -17,7 +17,6 @@ const names: DefaultNames = {
   otp: 'OTP',
   folketrygd: 'NP',
   withdrawal: 'Withdrawal',
-  summary: 'Summary',
 };
 
 const accountV1 = {
@@ -136,17 +135,6 @@ describe('boxes saved by version 1', () => {
 });
 
 describe('saving and loading', () => {
-  it('keeps a summary and what it reads', () => {
-    const boxes = [
-      { id: 'a', type: 'account', position: { x: 0, y: 0 }, data: { name: 'a' } },
-      { id: 's', type: 'summary', position: { x: 0, y: 0 }, data: { name: 'Both' } },
-    ] as PlacedBox[];
-    const wires: Wire[] = [{ id: 'a-s-basis', source: 'a', target: 's', kind: 'basis' }];
-    const { boxes: loaded, wires: loadedWires } = parseGraph(serializeGraph({ boxes, wires }), names);
-    expect(loaded.find((box) => box.id === 's')?.data).toEqual({ name: 'Both' });
-    expect(loadedWires).toEqual(wires);
-  });
-
   it('gets back what was saved, without what belongs to the canvas', () => {
     const graph = defaultGraph(names);
     const selected = { ...graph, boxes: graph.boxes.map((box) => ({ ...box, selected: true, measured: { width: 1, height: 1 } })) };
@@ -235,11 +223,39 @@ describe('files saved by earlier versions', () => {
     expect(boxOf(load(2), 'fund')).toMatchObject({ accountType: 'ask', shieldRate: 3.6, unusedShield: 0 });
   });
 
-  it('keeps every figure and wire in a file from version 2', () => {
+  it('keeps every figure and wire in a file from version 2, apart from the summary and what was wired to it', () => {
     const stored = JSON.parse(files['./__saved__/version-2.json']);
     const graph = load(2);
+    const kept = stored.boxes.filter((box: PlacedBox) => (box.type as string) !== 'summary');
+    expect(kept).toHaveLength(stored.boxes.length - 1);
+    for (const box of kept) expect(boxOf(graph, box.id)).toMatchObject(box.data);
+    expect(graph.boxes.some((box) => box.id === 'all')).toBe(false);
+    expect(graph.wires).toEqual(stored.wires.filter((wire: Wire) => wire.target !== 'all'));
+  });
+
+  it('gives the same result for a file from version 2 as before the summary went, since it moved no money', () => {
+    const stored = JSON.parse(files['./__saved__/version-2.json']);
+    const without = {
+      ...stored,
+      version: VERSION,
+      boxes: stored.boxes.filter((box: PlacedBox) => (box.type as string) !== 'summary'),
+      wires: stored.wires.filter((wire: Wire) => wire.target !== 'all'),
+    };
+    const closing = (graph: Graph) => runPass(compile(inputOf(graph), 40), noNoise).closing;
+    expect(closing(load(2))).toEqual(closing(parseGraph(JSON.stringify(without), names)));
+  });
+
+  it('keeps every figure and wire in a file from version 3', () => {
+    const stored = JSON.parse(files['./__saved__/version-3.json']);
+    const graph = load(3);
     for (const box of stored.boxes) expect(boxOf(graph, box.id)).toMatchObject(box.data);
     expect(graph.wires).toEqual(stored.wires);
+  });
+
+  it('still refuses a box type it does not know in a file from version 2', () => {
+    const stored = JSON.parse(files['./__saved__/version-2.json']);
+    stored.boxes.push({ id: 'x', type: 'future', position: { x: 0, y: 0 }, data: {} });
+    expect(() => parseGraph(JSON.stringify(stored), names)).toThrow();
   });
 });
 

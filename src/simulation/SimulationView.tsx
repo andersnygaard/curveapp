@@ -1,6 +1,6 @@
 import AccountChart from '../components/AccountChart';
 import WithdrawalsChart from '../components/WithdrawalsChart';
-import type { StockSummary } from '../engine/statistics';
+import type { StockSummary, WithdrawalSummary } from '../engine/statistics';
 import { DAY_MS } from '../engine/timeline';
 import { useTranslations } from '../i18n';
 import { DEFAULT_YEARS, LAST_AGE } from '../model/compile';
@@ -67,6 +67,46 @@ export default function SimulationView({
     return toLastAge ? t.medianAtAge(LAST_AGE, amount) : t.medianAfter(player!.years, amount);
   }
 
+  function withdrawalSection(withdrawal: WithdrawalSummary) {
+    const money = new Intl.NumberFormat(t.locale, { style: 'currency', currency: withdrawal.currency, maximumFractionDigits: 0 });
+    return (
+      <section key={withdrawal.id} className="withdrawal">
+        <div className="chart-heading">
+          <h2 className="chart-name">{withdrawal.name}</h2>
+          <span className="chart-headline">
+            {withdrawal.taxPaid > 0
+              ? t.withdrawnAndTax(money.format(withdrawal.withdrawn), money.format(withdrawal.taxPaid))
+              : t.withdrawnInTotal(money.format(withdrawal.withdrawn))}
+          </span>
+        </div>
+        <WithdrawalsChart
+          title={t.withdrawalsPerMonth}
+          labels={{
+            other: t.otherBoxes,
+            need: t.need,
+            surplus: t.surplus,
+            surplusGoesOn: withdrawal.surplusTo === null ? t.surplusIsSpent : t.surplusGoesTo(withdrawal.surplusTo),
+            short: t.short,
+            tax: t.tax,
+          }}
+          yearEdges={withdrawal.yearEdges}
+          sources={withdrawal.sources}
+          need={withdrawal.need}
+          surplus={withdrawal.surplus}
+          short={withdrawal.short}
+          tax={withdrawal.tax}
+          yMax={withdrawal.perMonthMax}
+          startMs={player!.layout.startMs}
+          totalDays={player!.layout.totalDays}
+          birthYear={birthYear}
+          locale={t.locale}
+          currency={withdrawal.currency}
+          ageLabel={t.ageTick}
+        />
+      </section>
+    );
+  }
+
   return (
     <div className="sim">
       <div className="sim-toolbar">
@@ -100,7 +140,6 @@ export default function SimulationView({
           </button>
         </div>
       </div>
-      <p className="sim-legend">{t.simulationLegend}</p>
 
       {player.summary.gates.map((gate) => (
         <p key={gate.id} className="sim-gate">
@@ -110,6 +149,10 @@ export default function SimulationView({
         </p>
       ))}
 
+      {player.summary.withdrawals.map(withdrawalSection)}
+
+      <p className="sim-legend">{t.simulationLegend}</p>
+
       {player.summary.stocks.map((stock, index) => {
         const money = new Intl.NumberFormat(t.locale, {
           style: 'currency',
@@ -117,13 +160,11 @@ export default function SimulationView({
           maximumFractionDigits: 0,
         });
         const headline = headlineOf(stock, money);
-        const { overview } = stock;
-        const hasBalance = overview?.hasBalance ?? true;
         return (
           <section key={stock.id} className="chart">
             <div className="chart-heading">
               <h2 className="chart-name">{stock.name}</h2>
-              {hasBalance && <span className="chart-headline">{headline}</span>}
+              <span className="chart-headline">{headline}</span>
             </div>
             {stock.calculated && <p className="chart-note">{t.calculatedBalance}</p>}
             {stock.payoutPerYear !== null && (
@@ -137,37 +178,17 @@ export default function SimulationView({
               </p>
             )}
             {stock.afterTax !== null && <p className="chart-note">{t.afterTaxIfWithdrawn(money.format(stock.afterTax))}</p>}
-            {overview && hasBalance && <p className="chart-note">{t.overviewLegend}</p>}
-            {overview?.shield && <p className="chart-note">{t.overviewShieldLegend}</p>}
-            {overview && overview.withdrawn > 0 && (
-              <p className="chart-note">{t.withdrawnInTotal(money.format(overview.withdrawn))}</p>
-            )}
-            {hasBalance && (
-              <AccountChart
-                player={player}
-                index={index}
-                locale={t.locale}
-                birthYear={birthYear}
-                ageLabel={t.ageTick}
-                description={`${stock.name}. ${headline}`}
-                registerDraw={registerDraw}
-              />
-            )}
-            {overview && overview.lines.length > 0 && (
-              <WithdrawalsChart
-                title={t.withdrawalsPerMonth}
-                otherLabel={t.otherBoxes}
-                days={overview.days}
-                lines={overview.lines}
-                yMax={overview.perMonthMax}
-                startMs={player.layout.startMs}
-                totalDays={player.layout.totalDays}
-                birthYear={birthYear}
-                locale={t.locale}
-                currency={stock.currency}
-                ageLabel={t.ageTick}
-              />
-            )}
+            {stock.deposits && <p className="chart-note">{t.depositsLegend}</p>}
+            {stock.shield && <p className="chart-note">{t.shieldLegend}</p>}
+            <AccountChart
+              player={player}
+              index={index}
+              locale={t.locale}
+              birthYear={birthYear}
+              ageLabel={t.ageTick}
+              description={`${stock.name}. ${headline}`}
+              registerDraw={registerDraw}
+            />
           </section>
         );
       })}

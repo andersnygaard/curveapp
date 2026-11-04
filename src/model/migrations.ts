@@ -9,6 +9,7 @@ const RETURN_BOX_SPACE = 320;
 
 type Stored = { id: string; type: string; position?: XYPosition; data?: Record<string, unknown> };
 export type Version1 = { nodes: Stored[]; edges: { source: string; target: string }[] };
+export type Version2 = { boxes: PlacedBox[]; wires: Wire[] };
 
 function freeSpotAbove(position: XYPosition, taken: XYPosition[]): XYPosition {
   let spot = { x: position.x, y: position.y - RETURN_BOX_SPACE };
@@ -71,4 +72,14 @@ export function fromVersion1({ nodes, edges }: Version1): { boxes: PlacedBox[]; 
     if (kind) wires.push(wireOf(source, target, kind));
   }
   return { boxes: boxes as PlacedBox[], wires };
+}
+
+// Version 2 had a summary box, which read what was wired to it. A withdrawal now shows what it draws on by itself, so
+// the box and its wires go. It moved no money, so no result changes and nothing else in the file is touched.
+export function fromVersion2({ boxes, wires }: Version2): Version2 {
+  const gone = new Set(boxes.filter((box) => (box.type as string) === 'summary').map((box) => box.id));
+  return {
+    boxes: boxes.filter((box) => !gone.has(box.id)),
+    wires: wires.filter((wire) => !gone.has(wire.source) && !gone.has(wire.target)),
+  };
 }

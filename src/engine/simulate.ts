@@ -48,7 +48,7 @@ export function* simulate(model: Model, stages: number[] = PASS_STAGES): Generat
 
     // A pass and its opposite should not follow each other on screen.
     shuffle(fresh, random);
-    const passes = fresh.slice(0, Math.max(0, PLAYBACK_PASSES - played)).map((result) => [...result.overviews.map(({ total }) => total), ...result.series]);
+    const passes = fresh.slice(0, Math.max(0, PLAYBACK_PASSES - played)).map((result) => result.series);
     played += passes.length;
     yield { summary, passes };
   }

@@ -147,7 +147,7 @@ export const Account: Story = {
     await userEvent.selectOptions(type, 'Regular');
     await expect(canvas.queryByLabelText('Tax on gains (%)')).toBeNull();
     await expect(canvas.queryByLabelText('Shielding rate (%)')).toBeNull();
-    await expect(dots(canvasElement).sort()).toEqual(['in port-influence', 'in port-money', 'out port-basis', 'out port-money']);
+    await expect(dots(canvasElement).sort()).toEqual(['in port-influence', 'in port-money', 'out port-money']);
   },
 };
 
@@ -168,7 +168,7 @@ export const Otp: Story = {
     await expect(canvas.queryByLabelText('Years of payout')).toBeNull();
     await userEvent.type(age, '67');
     await expect(canvas.getByLabelText('Years of payout')).toBeVisible();
-    await expect(dots(canvasElement).sort()).toEqual(['in port-basis', 'in port-influence', 'out port-basis', 'out port-money']);
+    await expect(dots(canvasElement).sort()).toEqual(['in port-basis', 'in port-influence', 'out port-money']);
   },
 };
 
@@ -181,7 +181,7 @@ export const Folketrygd: Story = {
     await userEvent.type(age, '67');
     // Left empty, the estimate for that age is used, and the field says which one.
     await expect((canvas.getByLabelText('Divisor') as HTMLInputElement).placeholder).not.toBe('');
-    await expect(dots(canvasElement).sort()).toEqual(['in port-basis', 'out port-basis', 'out port-money']);
+    await expect(dots(canvasElement).sort()).toEqual(['in port-basis', 'out port-money']);
   },
 };
 
@@ -190,10 +190,11 @@ export const Withdrawal: Story = {
   play: async ({ canvasElement }) => {
     const canvas = await shown(canvasElement);
     const mode = canvas.getByLabelText('Set as');
-    await expect(canvas.getByLabelText('Amount a month (before tax)')).toBeVisible();
+    await expect(canvas.getByLabelText('Amount a month (after tax)')).toBeVisible();
+    await expect(canvas.getByLabelText('Tax on pension (%)')).toHaveValue(24);
     await userEvent.selectOptions(mode, 'Percent of the accounts');
-    await expect(canvas.queryByLabelText('Amount a month (before tax)')).toBeNull();
-    await expect(canvas.getByLabelText('Percent a year')).toBeVisible();
+    await expect(canvas.queryByLabelText('Amount a month (after tax)')).toBeNull();
+    await expect(canvas.getByLabelText('Percent a year (before tax)')).toBeVisible();
   },
 };
 
@@ -205,18 +206,7 @@ export const WithdrawalShowsThePercent: Story = {
   play: async ({ canvasElement }) => {
     const canvas = await shown(canvasElement);
     await userEvent.selectOptions(canvas.getByLabelText('Set as'), 'Percent of the accounts');
-    await expect(canvas.getByLabelText('Percent a year')).toHaveValue(4);
-  },
-};
-
-export const Summary: Story = {
-  args: { type: 'summary' },
-  play: async ({ canvasElement }) => {
-    const canvas = await shown(canvasElement);
-    await expect(canvas.getByLabelText('Name')).toHaveValue('Summary');
-    await expect(canvas.getByText(translations.en.summaryNote)).toBeVisible();
-    // It only reads, so it takes basis wires and gives nothing on.
-    await expect(dots(canvasElement)).toEqual(['in port-basis']);
+    await expect(canvas.getByLabelText('Percent a year (before tax)')).toHaveValue(4);
   },
 };
 
