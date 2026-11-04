@@ -5,6 +5,7 @@ import { Player } from './player';
 
 const START_MS = Date.UTC(2030, 0, 1);
 const PASS_SCALES = [0.7, 1.3, 1];
+const SPREAD_SCALES = { p10: 0.7, p25: 0.85, p75: 1.15, p90: 1.3 };
 const COMPLETED_PASSES = 2;
 
 export interface FixedStock {
@@ -38,7 +39,13 @@ export function fixedPlayer({ years = 30, stocks, gates = [], withdrawals = [] }
       currency: 'NOK',
       calculated: false,
       median,
-      yMax: Math.max(...finite) * PASS_SCALES[1],
+      spread: {
+        p10: seriesOf(stock, SPREAD_SCALES.p10),
+        p25: seriesOf(stock, SPREAD_SCALES.p25),
+        p75: seriesOf(stock, SPREAD_SCALES.p75),
+        p90: seriesOf(stock, SPREAD_SCALES.p90),
+      },
+      yMax: Math.max(...finite) * SPREAD_SCALES.p90,
       lastValue: finite[finite.length - 1],
       closeDay: null,
       heldShare: null,
@@ -56,7 +63,6 @@ export function fixedPlayer({ years = 30, stocks, gates = [], withdrawals = [] }
     years,
     { summary: { passes: 2000, stocks: summaries, gates, withdrawals }, passes },
   );
-  player.history = passes.slice(0, COMPLETED_PASSES);
   player.current = passes[COMPLETED_PASSES];
   player.completed = COMPLETED_PASSES;
   player.progress = 0.5;

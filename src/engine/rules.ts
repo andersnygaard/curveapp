@@ -1,6 +1,6 @@
 // General rules. Each is one thing that can happen in a day.
 import { OUTSIDE, type Rule } from './engine';
-import { shareLeaving, taxOnDraw } from './norway';
+import { PENSION_TAX_RATE, shareLeaving, taxOnDraw } from './norway';
 import { DAYS_PER_YEAR } from './timeline';
 
 export function stepFactor(
@@ -149,17 +149,16 @@ export interface GateOptions {
   pulls: Pull[];
   overflow: number;
   need: Need;
-  // The share of what the gate receives that goes to tax.
-  pensionTax: number;
   startDay: number;
   fires: Uint8Array;
   rank: number;
 }
 
-// What the gate received counts first, after tax. Any surplus flows on, and any shortfall is drawn from the accounts by
-// size. An amount is what should be left after tax, so more is drawn to pay the tax. A share of the accounts is what is
-// drawn, and the tax comes out of it. Before the start day there is no need, so pension paid early flows straight on.
-export function settleGate({ buffer, pulls, overflow, need, pensionTax, startDay, fires, rank }: GateOptions): Rule {
+// What the gate received counts first, and tax on pension has already been paid from it. Any surplus flows on, and any
+// shortfall is drawn from the accounts by size. An amount is what should be left after tax, so more is drawn to pay the tax.
+// A share of the accounts is what is drawn, and the tax comes out of it. Before the start day there is no need, so pension
+// paid early flows straight on.
+export function settleGate({ buffer, pulls, overflow, need, startDay, fires, rank }: GateOptions): Rule {
   const afterTax = 'perMonth' in need;
   return {
     phase: 'draw',
@@ -168,9 +167,8 @@ export function settleGate({ buffer, pulls, overflow, need, pensionTax, startDay
     start(world) {
       const { balances, ledger } = world;
       const inAccounts = () => pulls.reduce((sum, { stock }) => sum + balances[stock], 0);
+      const taxRate = world.factor(PENSION_TAX_RATE);
       let lockedNeed: number | undefined;
-      // Pension can wait here for an account to open, and must not be taxed again each month.
-      let taxedIn = 0;
       return (day) => {
         // A share of the accounts waits until there is something in them, since they may not have opened yet.
         if (day >= startDay && lockedNeed === undefined) {
@@ -179,12 +177,8 @@ export function settleGate({ buffer, pulls, overflow, need, pensionTax, startDay
         }
         const perMonth = lockedNeed ?? 0;
 
-        const paidIn = ledger.in[buffer] - taxedIn;
-        taxedIn = ledger.in[buffer];
-        world.tally(taxPaidAt(buffer), world.move(buffer, OUTSIDE, paidIn * pensionTax, 'tax:pension'));
-
         const received = balances[buffer];
-        const wanted = afterTax ? perMonth : perMonth * (1 - pensionTax);
+        const wanted = afterTax ? perMonth : perMonth * (1 - taxRate.value);
         const covered = Math.min(received, wanted);
         world.move(buffer, OUTSIDE, covered, 'spent:pension');
         if (received > covered) world.tally(passedOnBy(buffer), world.move(buffer, overflow, received - covered, 'surplus'));

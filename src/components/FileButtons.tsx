@@ -8,10 +8,11 @@ interface Props {
   fileName: () => string;
   contents: () => string;
   onLoad: (text: string) => void;
+  onReset: () => void;
 }
 
-// Saves to and reads from a file on the user's own machine. Nothing leaves the browser.
-export default function FileButtons({ fileName, contents, onLoad }: Props) {
+// Saves to and reads from a file on the user's own machine, or starts over. Nothing leaves the browser.
+export default function FileButtons({ fileName, contents, onLoad, onReset }: Props) {
   const t = useTranslations();
   const picker = useRef<HTMLInputElement>(null);
 
@@ -46,6 +47,9 @@ export default function FileButtons({ fileName, contents, onLoad }: Props) {
         onClick={() => picker.current!.click()}
       >
         {t.loadFile}
+      </button>
+      <button type="button" className="input-add" aria-label={t.resetHint} title={t.resetHint} onClick={onReset}>
+        {t.reset}
       </button>
       <input ref={picker} type="file" accept=".json,application/json" hidden onChange={load} />
     </div>

@@ -1,6 +1,6 @@
 import { createContext, useContext, type ReactNode } from 'react';
 import { Handle, Position, useReactFlow, type Node, type NodeProps } from '@xyflow/react';
-import { CheckField, DateField, Field, NumberField, OptionalNumberField, SelectField, TextField } from '../components/fields';
+import { DateField, Field, NumberField, OptionalNumberField, SelectField, TextField } from '../components/fields';
 import { estimatedDivisor } from '../engine/norway';
 import type { Interval } from '../engine/timeline';
 import { useTranslations, type Translations } from '../i18n';
@@ -98,11 +98,8 @@ function IncomeCard({ id, data }: CardProps<'income'>) {
         onChange={(interval) => update({ interval })}
       />
       <NumberField label={t.pensionBasis} value={data.pensionBasis} onChange={(pensionBasis) => update({ pensionBasis })} />
-      <CheckField
-        label={t.stopsAtRetirement}
-        value={data.stopsAtRetirement}
-        onChange={(stopsAtRetirement) => update({ stopsAtRetirement })}
-      />
+      <OptionalNumberField label={t.fromAge} value={data.fromAge} placeholder={t.fromTheStart} onChange={(fromAge) => update({ fromAge })} />
+      <OptionalNumberField label={t.toAge} value={data.toAge} placeholder={t.toTheEnd} onChange={(toAge) => update({ toAge })} />
     </BoxCard>
   );
 }
@@ -224,6 +221,7 @@ function ReturnCard({ id, data }: CardProps<'return'>) {
     <BoxCard id={id} type="return" name={data.name}>
       <TextField label={t.name} value={data.name} onChange={(name) => update({ name })} />
       <NumberField label={t.annualReturn} value={data.annualReturn} onChange={(annualReturn) => update({ annualReturn })} />
+      <p className="box-note">{t.annualReturnNote}</p>
       <SelectField
         label={t.returnInterval}
         value={data.returnInterval}
@@ -275,6 +273,7 @@ function FolketrygdCard({ id, data }: CardProps<'folketrygd'>) {
           onChange={(divisor) => update({ divisor })}
         />
       )}
+      <p className="box-note">{t.folketrygdNote}</p>
     </BoxCard>
   );
 }
@@ -300,8 +299,45 @@ function WithdrawalCard({ id, data }: CardProps<'withdrawal'>) {
       ) : (
         <NumberField label={t.percent} value={data.percent} onChange={(percent) => update({ percent })} />
       )}
-      <NumberField label={t.pensionTax} value={data.pensionTax} onChange={(pensionTax) => update({ pensionTax })} />
       <p className="box-note">{t.withdrawalNote}</p>
+    </BoxCard>
+  );
+}
+
+function HousingCard({ id, data }: CardProps<'housing'>) {
+  const t = useTranslations();
+  const update = useUpdate<'housing'>(id);
+  return (
+    <BoxCard id={id} type="housing" name={data.name}>
+      <TextField label={t.name} value={data.name} onChange={(name) => update({ name })} />
+      <SelectField
+        label={t.homeKind}
+        value={data.kind}
+        options={[
+          { value: 'primary', label: t.primaryHome },
+          { value: 'secondary', label: t.secondaryHome },
+          { value: 'cabin', label: t.cabin },
+        ]}
+        onChange={(kind) => update({ kind })}
+      />
+      <NumberField label={t.housingValue} value={data.value} onChange={(value) => update({ value })} />
+      <NumberField label={t.loan} value={data.loan} onChange={(loan) => update({ loan })} />
+      <DateField label={t.paidOff} value={data.paidOff} onChange={(paidOff) => update({ paidOff })} />
+      <p className="box-note">{t.housingNote}</p>
+    </BoxCard>
+  );
+}
+
+function WealthTaxCard({ id, data }: CardProps<'wealthTax'>) {
+  const t = useTranslations();
+  const update = useUpdate<'wealthTax'>(id);
+  return (
+    <BoxCard id={id} type="wealthTax" name={t.wealthTax}>
+      <NumberField label={t.wealthAllowance} value={data.allowance} onChange={(allowance) => update({ allowance })} />
+      <NumberField label={t.wealthRate} value={data.rate} onChange={(rate) => update({ rate })} />
+      <NumberField label={t.wealthHighFrom} value={data.highFrom} onChange={(highFrom) => update({ highFrom })} />
+      <NumberField label={t.wealthHighRate} value={data.highRate} onChange={(highRate) => update({ highRate })} />
+      <p className="box-note">{t.wealthTaxNote}</p>
     </BoxCard>
   );
 }
@@ -333,11 +369,6 @@ function MeCard({ id, data }: CardProps<'me'>) {
         value={data.birthYear || null}
         onChange={(birthYear) => update({ birthYear: birthYear ?? 0 })}
       />
-      <OptionalNumberField
-        label={t.retirementAge}
-        value={data.retirementAge}
-        onChange={(retirementAge) => update({ retirementAge })}
-      />
       <p className="box-note">{t.meNote}</p>
     </BoxCard>
   );
@@ -352,6 +383,8 @@ export const nodeTypes = {
   otp: OtpCard,
   folketrygd: FolketrygdCard,
   withdrawal: WithdrawalCard,
+  housing: HousingCard,
+  wealthTax: WealthTaxCard,
   g: GCard,
   me: MeCard,
 };

@@ -6,7 +6,7 @@ import { today, validDate } from '../dates';
 import type { BoxSpec, CompileContext, DiagnosticCode } from '../spec';
 import { MANY } from '../spec';
 import type { OtpBox } from '../types';
-import { basisOf, incomeSchedule, incomesOf, paymentsPerYear, salaryFrom } from './pay';
+import { addTaxedPension, basisOf, incomeSchedule, incomesOf, paymentsPerYear, salaryFrom } from './pay';
 import { annualRateOf } from './returnBox';
 
 const percent = (value: number) => Math.max(0, value) / 100;
@@ -48,6 +48,7 @@ function buildPayout(otp: OtpBox, context: CompileContext) {
   const target = context.outOf(otp, 'money')[0];
   // A payout that began before the simulation has already used some of its term.
   const monthsGone = fromDay < 0 ? Math.round((-fromDay / DAYS_PER_YEAR) * 12) : 0;
+  addTaxedPension(otp, `payout:${otp.id}`, context);
   context.addRule(
     payOutOverYears({
       stock: context.stockOf(otp),

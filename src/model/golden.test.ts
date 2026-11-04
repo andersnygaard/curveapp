@@ -38,7 +38,7 @@ const names: DefaultNames = {
   income: 'a',
   transfer: 'b',
   budget: 'c',
-  budgetHousing: 'd',
+  housing: 'd',
   budgetLiving: 'e',
   account: 'f',
   return: 'g',

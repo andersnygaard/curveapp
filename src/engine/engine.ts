@@ -43,9 +43,8 @@ export interface Rule {
 // What a gate is paid from, read from the ledger's flows. It moves no money, so it cannot change a result.
 export interface GateSources {
   gate: number;
-  // Each source is a label in the ledger's flows, in the order the sources stack. Where the flow is before tax, keeps
-  // says how much of it is left after tax.
-  sources: { name: string; label: string; keeps?: number }[];
+  // Each source is a label in the ledger's flows of what it pays after tax, in the order the sources stack.
+  sources: { name: string; label: string }[];
   // Where what is left over goes. Null when it counts as spent.
   surplusTo: string | null;
 }

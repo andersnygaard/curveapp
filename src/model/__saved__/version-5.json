@@ -1,0 +1,70 @@
+{
+  "version": 5,
+  "boxes": [
+    {
+      "id": "me",
+      "type": "me",
+      "position": { "x": 0, "y": -400 },
+      "data": { "birthYear": 1980, "retirementAge": 62 }
+    },
+    {
+      "id": "g",
+      "type": "g",
+      "position": { "x": 400, "y": -400 },
+      "data": { "g": 130000, "gGrowth": 1, "standardDeviation": 1 }
+    },
+    {
+      "id": "salary",
+      "type": "income",
+      "position": { "x": 0, "y": 0 },
+      "data": { "name": "Salary", "amount": 40000, "interval": "monthly", "pensionBasis": 600000, "stopsAtRetirement": true }
+    },
+    {
+      "id": "saving",
+      "type": "transfer",
+      "position": { "x": 400, "y": 0 },
+      "data": { "name": "Savings", "amount": 4000, "interval": "monthly" }
+    },
+    {
+      "id": "fund",
+      "type": "account",
+      "position": { "x": 800, "y": 0 },
+      "data": { "name": "Fund", "startAmount": 100000, "startDate": "2027-01-01", "currency": "NOK", "accountType": "ask", "taxRate": 30, "inflation": 2, "shieldRate": 3.6, "unusedShield": 1000 }
+    },
+    {
+      "id": "market",
+      "type": "return",
+      "position": { "x": 800, "y": -400 },
+      "data": { "name": "Market", "annualReturn": 4, "returnInterval": "monthly", "standardDeviation": 12 }
+    },
+    {
+      "id": "occupational",
+      "type": "otp",
+      "position": { "x": 400, "y": 500 },
+      "data": { "name": "OTP", "startAmount": 200000, "startDate": "2027-01-01", "lowRate": 5, "highRate": 8, "payoutAge": 67, "payoutYears": 10 }
+    },
+    {
+      "id": "national",
+      "type": "folketrygd",
+      "position": { "x": 400, "y": 900 },
+      "data": { "name": "Alderspensjon", "startAmount": 1000000, "startDate": "2027-01-01", "payoutAge": 67, "divisor": 20 }
+    },
+    {
+      "id": "living",
+      "type": "withdrawal",
+      "position": { "x": 1200, "y": 0 },
+      "data": { "name": "Withdrawal", "startAge": 62, "mode": "amount", "perMonth": 30000, "percent": 4 }
+    }
+  ],
+  "wires": [
+    { "id": "salary-saving-money", "source": "salary", "target": "saving", "kind": "money" },
+    { "id": "saving-fund-money", "source": "saving", "target": "fund", "kind": "money" },
+    { "id": "market-fund-influence", "source": "market", "target": "fund", "kind": "influence" },
+    { "id": "salary-occupational-basis", "source": "salary", "target": "occupational", "kind": "basis" },
+    { "id": "salary-national-basis", "source": "salary", "target": "national", "kind": "basis" },
+    { "id": "fund-living-money", "source": "fund", "target": "living", "kind": "money" },
+    { "id": "occupational-living-money", "source": "occupational", "target": "living", "kind": "money" },
+    { "id": "national-living-money", "source": "national", "target": "living", "kind": "money" },
+    { "id": "living-fund-money", "source": "living", "target": "fund", "kind": "money" }
+  ]
+}

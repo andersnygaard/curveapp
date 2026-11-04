@@ -51,8 +51,9 @@ export function defaultGraph(names: DefaultNames): Graph {
   const account = createBox('account', { x: 820, y: 40 }, names);
   const market = createBox('return', { x: 820, y: -230 }, names);
   const me = createBox('me', { x: 0, y: -230 }, names);
+  const wealthTax = createBox('wealthTax', { x: 410, y: 330 }, names);
   return {
-    boxes: [income, transfer, account, market, me],
+    boxes: [income, transfer, account, market, me, wealthTax],
     wires: [
       wireOf(income.id, transfer.id, 'money'),
       wireOf(transfer.id, account.id, 'money'),

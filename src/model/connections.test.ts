@@ -19,6 +19,7 @@ describe('canConnect', () => {
     ['account', 'withdrawal', 'money'],
     ['otp', 'withdrawal', 'money'],
     ['folketrygd', 'withdrawal', 'money'],
+    ['income', 'withdrawal', 'money'],
     ['otp', 'account', 'money'],
     ['folketrygd', 'account', 'money'],
     ['withdrawal', 'account', 'money'],
@@ -38,7 +39,7 @@ describe('canConnect', () => {
     ['return', 'folketrygd', 'influence', 'it is regulated by law and has no market'],
     ['return', 'transfer', 'influence', 'only what holds value can grow'],
     ['return', 'account', 'money', 'a return moves no money'],
-    ['income', 'withdrawal', 'money', 'the budget has nothing to do with withdrawals'],
+    ['transfer', 'withdrawal', 'money', 'only an income goes straight to a withdrawal'],
     ['budget', 'withdrawal', 'money', 'the budget has nothing to do with withdrawals'],
     ['account', 'budget', 'money', 'the budget has nothing to do with withdrawals'],
     ['transfer', 'transfer', 'money', 'a chain has no use'],
@@ -59,6 +60,19 @@ describe('canConnect', () => {
     expect(catalog.g.gives).toBeUndefined();
     expect(catalog.me.takes).toBeUndefined();
     expect(catalog.me.gives).toBeUndefined();
+  });
+
+  it('leaves housing without connectors, and it can still be deleted', () => {
+    expect(catalog.housing.takes).toBeUndefined();
+    expect(catalog.housing.gives).toBeUndefined();
+    expect(catalog.housing.fixed).toBeUndefined();
+  });
+
+  it('leaves the wealth tax without connectors, and there is one that can be deleted', () => {
+    expect(catalog.wealthTax.takes).toBeUndefined();
+    expect(catalog.wealthTax.gives).toBeUndefined();
+    expect(catalog.wealthTax.fixed).toBeUndefined();
+    expect(catalog.wealthTax.onlyOne).toBe(true);
   });
 });
 

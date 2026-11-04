@@ -13,6 +13,8 @@ npm run storybook   # every component on its own
 
 Every push to `main` publishes the app: `.github/workflows/pages.yml` runs `npm test` and `npm run build`, and if they pass the site goes out on GitHub Pages at https://andersnygaard.github.io/curveapp/. It can also be started by hand under Actions.
 
+For now, code is pushed straight to `main`, not through a branch. This is a known shortcut: we will land on a better way once the solution has stabilized.
+
 ## Architecture
 
 Three layers. Dependencies only go downwards, and `src/architecture.test.ts` enforces it.
@@ -31,7 +33,7 @@ src/engine                                  The simulation. Stocks, factors, rul
 ## Components
 
 - `src/components` has the general parts: fields, header, tabs, footer, language picker, wire legend and chart. They know nothing of box types. What does know them stays in `src/input` and `src/simulation`.
-- Every component has a `*.stories.tsx` next to it, and its tests are in the stories' `play` functions. `npm test` runs them at laptop, tablet and phone size, and every story must also fit the screen at each size.
+- Every component has a `*.stories.tsx` next to it, and its tests are in the stories' `play` functions. `npm test` runs them at laptop, tablet and phone size in the dark colours, and at laptop size in the light ones, and every story must also fit the screen at each size.
 - What shows numbers takes them as props, so it can be tested without a Web Worker: `SimulationView` with `simulation/fixedPlayer.ts`, and `PlanView`.
 
 ## The model
@@ -59,3 +61,9 @@ Do not change `engine.ts` or `connections.ts` for this. If a new rule is needed,
 - **The repository is public.** No real salaries, balances or birth years in code, tests or commit messages. Use made-up numbers.
 - All amounts are in today's money, and returns are real, above inflation.
 - Write code and comments in English. The app has Norwegian and English texts, and both must be kept up to date.
+
+## Linear
+
+- An issue that has been carried out goes to In Review, however the work was started. Leave Done to the user.
+- A Backlog issue that needs follow-up gets the label `Trenger mer oppfølging`.
+- In a loop, `linear-task` runs in a subagent, so a long loop does not fill the main session.

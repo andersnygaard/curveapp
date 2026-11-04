@@ -1,11 +1,12 @@
 # Work waiting on the Curve board: status Todo, or label "Mer arbeid" in any state that is not
-# cancelled. Issues labelled "Trenger avklaring" wait for an answer from the user and are left out.
+# cancelled. Issues labelled "Trenger mer oppfølging" or "Trenger avklaring" wait for an answer from
+# the user and are left out.
 {
   issues(
     first: 50
     filter: {
       project: { slugId: { eq: "5999feb19281" } }
-      labels: { every: { name: { neq: "Trenger avklaring" } } }
+      labels: { every: { name: { nin: ["Trenger mer oppfølging", "Trenger avklaring"] } } }
       state: { type: { nin: ["canceled", "duplicate"] } }
       or: [
         { state: { name: { eq: "Todo" } } }

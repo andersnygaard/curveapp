@@ -13,6 +13,11 @@ describe('the words that change with the language', () => {
     }
   });
 
+  it('take the old-age pension to its name in the other language and back', () => {
+    expect(new Map(norwegian).get('Alderspensjon')).toBe('National pension');
+    expect(new Map(english).get('National pension')).toBe('Alderspensjon');
+  });
+
   it('include the words on the boxes that people use as names', () => {
     expect(new Map(english).get('Income')).toBe('Inntekt');
     expect(new Map(english).get('Fund')).toBe('Fond');

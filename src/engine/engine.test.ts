@@ -229,21 +229,51 @@ describe('summarize', () => {
     }
   });
 
+  it('leaves a tenth and a quarter of the passes outside each edge of the bands', () => {
+    const results = Array.from({ length: 21 }, (_, index) => pass([1, index * 100, 1]));
+    const { spread } = summarize(model, results).stocks[0];
+    expect(spread.p10[1]).toBe(200);
+    expect(spread.p25[1]).toBe(500);
+    expect(spread.p75[1]).toBe(1500);
+    expect(spread.p90[1]).toBe(1800);
+  });
+
+  it('puts a share that falls between two passes between their values', () => {
+    const results = [0, 100, 200, 300].map((value) => pass([1, value, 1]));
+    const { spread } = summarize(model, results).stocks[0];
+    expect(spread.p25[1]).toBeCloseTo(75, 9);
+    expect(spread.p90[1]).toBeCloseTo(270, 9);
+  });
+
+  it('has no band where a line has stopped', () => {
+    const { spread } = summarize(model, [pass([1, 2, NaN]), pass([3, 4, NaN])]).stocks[0];
+    expect(spread.p10[1]).toBeCloseTo(2.2, 9);
+    expect(Number.isNaN(spread.p10[2])).toBe(true);
+    expect(Number.isNaN(spread.p90[2])).toBe(true);
+  });
+
   it('counts the share of passes where nothing was missing', () => {
     const results = [pass([1, 1, 1]), pass([1, 1, 0], 50), pass([1, 1, 1]), pass([1, 1, 1])];
     expect(summarize(model, results).stocks[0].heldShare).toBe(0.75);
   });
 
-  it('scales to the highest point of a pass and not to where it ends', () => {
+  it('scales to the highest point of the band and not to where it ends', () => {
     const results = Array.from({ length: 20 }, (_, index) => pass([100 + index, 1000 + index, 0]));
-    const { yMax, lastValue } = summarize(model, results).stocks[0];
+    const { yMax, lastValue, spread } = summarize(model, results).stocks[0];
     expect(lastValue).toBe(0);
-    expect(yMax).toBeGreaterThan(1000);
+    expect(yMax).toBeGreaterThan(spread.p90[1]);
   });
 
-  it('keeps the median readable when the fan gets very wide', () => {
-    const results = Array.from({ length: 19 }, (_, index) => pass([1, 100 + index * 1000, 1])).concat(pass([1, 100_000, 1]));
-    const { yMax, median } = summarize(model, results).stocks[0];
+  it('does not let one lucky pass decide the scale', () => {
+    const steady = Array.from({ length: 19 }, () => pass([1, 1000, 1]));
+    const { yMax } = summarize(model, [...steady, pass([1, 3000, 1])]).stocks[0];
+    expect(yMax).toBeLessThan(1500);
+  });
+
+  it('keeps the median readable when the band gets very wide', () => {
+    const results = Array.from({ length: 21 }, (_, index) => pass([1, index < 12 ? 100 : 100_000, 1]));
+    const { yMax, median, spread } = summarize(model, results).stocks[0];
+    expect(spread.p90[1]).toBeGreaterThan(yMax);
     expect(yMax).toBeLessThanOrEqual(4 * median[1] * 1.05);
   });
 

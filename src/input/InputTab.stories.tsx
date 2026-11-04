@@ -12,7 +12,8 @@ const names = translations.en.defaultNames;
 function withPension(): Graph {
   const graph = defaultGraph(names);
   const otp = createBox('otp', { x: 410, y: -300 }, names);
-  return { ...graph, boxes: syncG([...graph.boxes, otp], names) };
+  const withdrawal = createBox('withdrawal', { x: 410, y: 400 }, names);
+  return { ...graph, boxes: syncG([...graph.boxes, otp, withdrawal], names) };
 }
 
 function Tab({ recovered = false, planOpen = false }: { recovered?: boolean; planOpen?: boolean }) {
@@ -66,6 +67,38 @@ export const AddingABox: Story = {
   },
 };
 
+// A home and a cabin are two boxes, and neither has a dot to wire.
+export const AddingAHomeAndACabin: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await ready(canvasElement);
+    const add = canvas.getByRole('button', { name: 'Add housing' });
+    await userEvent.click(add);
+    await userEvent.click(add);
+    await waitFor(() => expect(canvasElement.querySelectorAll('.box-housing')).toHaveLength(2));
+    await expect(canvasElement.querySelectorAll('.box-housing .react-flow__handle')).toHaveLength(0);
+    const [firstDelete] = await canvas.findAllByRole('button', { name: `Delete ${names.housing}` });
+    await fireEvent.click(firstDelete);
+    await waitFor(() => expect(canvasElement.querySelectorAll('.box-housing')).toHaveLength(1));
+  },
+};
+
+// There is one wealth tax. A new setup has it, and deleting it is how it is turned off, so only then can it be added.
+export const OneWealthTax: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await ready(canvasElement);
+    await expect(canvasElement.querySelectorAll('.box-wealthTax')).toHaveLength(1);
+    await expect(canvasElement.querySelectorAll('.box-wealthTax .react-flow__handle')).toHaveLength(0);
+    await expect(canvas.queryByRole('button', { name: 'Add wealth tax' })).toBeNull();
+    await fireEvent.click(canvas.getByRole('button', { name: 'Delete Wealth tax' }));
+    await waitFor(() => expect(canvasElement.querySelector('.box-wealthTax')).toBeNull());
+    await fireEvent.click(await canvas.findByRole('button', { name: 'Add wealth tax' }));
+    await waitFor(() => expect(canvasElement.querySelectorAll('.box-wealthTax')).toHaveLength(1));
+    await waitFor(() => expect(canvas.queryByRole('button', { name: 'Add wealth tax' })).toBeNull());
+  },
+};
+
 export const DeletingABox: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
@@ -97,6 +130,16 @@ export const WiringSalaryFromTheRoundDot: Story = {
   },
 };
 
+// A job can pay for part of the need directly, without going through an account.
+export const WiringSalaryToAWithdrawal: Story = {
+  play: async ({ canvasElement }) => {
+    await ready(canvasElement);
+    const money = wires(canvasElement, 'money');
+    await drawWire(canvasElement, '.box-income .port-money', '.box-withdrawal .port-money.target');
+    await waitFor(() => expect(wires(canvasElement, 'money')).toBe(money + 1));
+  },
+};
+
 export const RefusedWires: Story = {
   play: async ({ canvasElement }) => {
     await ready(canvasElement);
@@ -104,6 +147,7 @@ export const RefusedWires: Story = {
     await drawWire(canvasElement, '.box-income .port-money', '.box-otp .port-influence');
     await drawWire(canvasElement, '.box-return .port-influence', '.box-otp .port-basis');
     await drawWire(canvasElement, '.box-account .port-money.source', '.box-otp .port-basis');
+    await drawWire(canvasElement, '.box-transfer .port-money.source', '.box-withdrawal .port-money.target');
     await expect(canvasElement.querySelectorAll('.react-flow__edge')).toHaveLength(before);
   },
 };

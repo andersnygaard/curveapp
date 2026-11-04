@@ -4,7 +4,7 @@ import { today, validDate } from '../dates';
 import type { BoxSpec, CompileContext, DiagnosticCode } from '../spec';
 import { MANY } from '../spec';
 import type { FolketrygdBox } from '../types';
-import { salaryFrom } from './pay';
+import { addTaxedPension, salaryFrom } from './pay';
 
 export type FolketrygdData = {
   name: string;
@@ -72,6 +72,7 @@ export const folketrygdSpec: BoxSpec<FolketrygdBox> = {
 
     if (closeDay === undefined || payoutAge === null) return;
     const target = context.outOf(pension, 'money')[0];
+    addTaxedPension(pension, `payout:${pension.id}`, context);
     context.addRule(
       payFolketrygd(
         stock,

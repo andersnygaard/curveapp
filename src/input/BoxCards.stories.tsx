@@ -80,9 +80,31 @@ export const Income: Story = {
     await userEvent.clear(name);
     await userEvent.type(name, 'Bonus');
     await expect(name).toHaveValue('Bonus');
-    await expect(canvas.getByLabelText('Stops when you stop working')).toBeChecked();
+    // A new income stops at an age, so it does not run for life without anyone choosing it.
+    const from = canvas.getByLabelText('From age');
+    const to = canvas.getByLabelText('To age');
+    await expect(from).toHaveValue(null);
+    await expect(to).toHaveValue(67);
+    await expect(canvas.queryByRole('checkbox')).toBeNull();
+    // Empty means something of its own, and the field says what.
+    await expect(from).toHaveAttribute('placeholder', 'From the start');
+    await userEvent.clear(to);
+    await expect(to).toHaveValue(null);
+    await expect(to).toHaveAttribute('placeholder', 'Whole period');
+    await userEvent.type(from, '57');
+    await expect(from).toHaveValue(57);
     await expect(canvas.getByRole('button', { name: 'Delete Bonus' })).toBeVisible();
     await expect(dots(canvasElement).sort()).toEqual(['out port-basis', 'out port-money']);
+  },
+};
+
+export const IncomeInNorwegian: Story = {
+  args: { type: 'income' },
+  globals: { language: 'no' },
+  play: async ({ canvasElement }) => {
+    const canvas = await shown(canvasElement);
+    await expect(canvas.getByLabelText('Fra alder')).toHaveAttribute('placeholder', 'Fra starten');
+    await expect(canvas.getByLabelText('Til alder')).toHaveValue(67);
   },
 };
 
@@ -156,7 +178,17 @@ export const Return: Story = {
   play: async ({ canvasElement }) => {
     const canvas = await shown(canvasElement);
     canvas.getByLabelText('Real annual return (%)');
+    await expect(canvas.getByText(/Use the annualised return/)).toBeVisible();
     await expect(dots(canvasElement)).toEqual(['out port-influence']);
+  },
+};
+
+export const ReturnInNorwegian: Story = {
+  args: { type: 'return' },
+  globals: { language: 'no' },
+  play: async ({ canvasElement }) => {
+    const canvas = await shown(canvasElement);
+    await expect(canvas.getByText(/Bruk annualisert avkastning/)).toBeVisible();
   },
 };
 
@@ -182,6 +214,18 @@ export const Folketrygd: Story = {
     // Left empty, the estimate for that age is used, and the field says which one.
     await expect((canvas.getByLabelText('Divisor') as HTMLInputElement).placeholder).not.toBe('');
     await expect(dots(canvasElement).sort()).toEqual(['in port-basis', 'out port-money']);
+    await expect(canvas.getByText(/NAV pays it out/)).toBeVisible();
+  },
+};
+
+// Folketrygden is the whole scheme, and most people know this part of it as the old-age pension from NAV.
+export const FolketrygdInNorwegian: Story = {
+  args: { type: 'folketrygd' },
+  globals: { language: 'no' },
+  play: async ({ canvasElement }) => {
+    const canvas = await shown(canvasElement);
+    await expect(canvas.getByText('Alderspensjon (NAV)')).toBeVisible();
+    await expect(canvas.getByText('Pensjonen fra folketrygden, regnet ut fra inntekten din. NAV betaler den ut.')).toBeVisible();
   },
 };
 
@@ -191,7 +235,10 @@ export const Withdrawal: Story = {
     const canvas = await shown(canvasElement);
     const mode = canvas.getByLabelText('Set as');
     await expect(canvas.getByLabelText('Amount a month (after tax)')).toBeVisible();
-    await expect(canvas.getByLabelText('Tax on pension (%)')).toHaveValue(24);
+    // The tax follows the rules and is per person, so there is nothing to fill in, but it is said what it does not know.
+    await expect(canvas.queryByLabelText('Tax on pension (%)')).toBeNull();
+    await expect(canvas.getByText(/alongside a job gets higher tax than shown here/)).toBeVisible();
+    await expect(canvas.getByText(/Pension and income wired in count first/)).toBeVisible();
     await userEvent.selectOptions(mode, 'Percent of the accounts');
     await expect(canvas.queryByLabelText('Amount a month (after tax)')).toBeNull();
     await expect(canvas.getByLabelText('Percent a year (before tax)')).toBeVisible();
@@ -207,6 +254,78 @@ export const WithdrawalShowsThePercent: Story = {
     const canvas = await shown(canvasElement);
     await userEvent.selectOptions(canvas.getByLabelText('Set as'), 'Percent of the accounts');
     await expect(canvas.getByLabelText('Percent a year (before tax)')).toHaveValue(4);
+  },
+};
+
+export const Housing: Story = {
+  args: { type: 'housing' },
+  play: async ({ canvasElement }) => {
+    const canvas = await shown(canvasElement);
+    await expect(canvas.getByLabelText('Name')).toHaveValue('Housing');
+    await expect(canvas.getByLabelText('Value')).toHaveValue(3_000_000);
+    await expect(canvas.getByLabelText('Loan')).toHaveValue(1_500_000);
+    await expect((canvas.getByLabelText('Paid off') as HTMLInputElement).value).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    // The home you live in, since that is what most boxes are. It only matters for the wealth tax.
+    await expect(canvas.getByLabelText('Type')).toHaveValue('primary');
+    await userEvent.selectOptions(canvas.getByLabelText('Type'), 'Cabin');
+    await expect(canvas.getByLabelText('Type')).toHaveValue('cabin');
+    // There can be many, so it can be deleted. Nothing is chosen by wiring it, so it has no dots.
+    await expect(canvas.getByRole('button', { name: 'Delete Housing' })).toBeVisible();
+    await expect(dots(canvasElement)).toEqual([]);
+    await expect(canvas.getByText(/moves no money/)).toBeVisible();
+  },
+};
+
+export const HousingInNorwegian: Story = {
+  args: { type: 'housing' },
+  globals: { language: 'no' },
+  play: async ({ canvasElement }) => {
+    const canvas = await shown(canvasElement);
+    await expect(canvas.getByText('Bolig')).toBeVisible();
+    await expect(canvas.getByLabelText('Verdi')).toBeVisible();
+    await expect(canvas.getByLabelText('Lån')).toBeVisible();
+    await expect(canvas.getByLabelText('Nedbetalt')).toBeVisible();
+    for (const kind of ['Primærbolig', 'Sekundærbolig', 'Hytte']) await expect(canvas.getByRole('option', { name: kind })).toBeInTheDocument();
+    await expect(canvas.getByText(/flytter ingen penger/)).toBeVisible();
+  },
+};
+
+export const TwoPrimaryHomes: Story = {
+  args: { type: 'housing', warning: 'twoPrimaryHomes' },
+  play: async ({ canvasElement }) => {
+    const canvas = await shown(canvasElement);
+    await expect(canvas.getByText(/only one home can be the primary home/)).toBeVisible();
+  },
+};
+
+export const WealthTax: Story = {
+  args: { type: 'wealthTax' },
+  play: async ({ canvasElement }) => {
+    const canvas = await shown(canvasElement);
+    await expect(canvas.getByLabelText('Allowance')).toHaveValue(1_900_000);
+    await expect(canvas.getByLabelText('Rate (%)')).toHaveValue(1);
+    await expect(canvas.getByLabelText('Higher rate from')).toHaveValue(21_500_000);
+    await expect(canvas.getByLabelText('Higher rate (%)')).toHaveValue(1.1);
+    await expect(canvas.queryByLabelText('Name')).toBeNull();
+    // There is one and it counts everything, so it has no dots. Deleting it is how the tax is turned off.
+    await expect(canvas.getByRole('button', { name: 'Delete Wealth tax' })).toBeVisible();
+    await expect(dots(canvasElement)).toEqual([]);
+    await expect(canvas.getByText(/double the allowance/)).toBeVisible();
+  },
+};
+
+export const WealthTaxInNorwegian: Story = {
+  args: { type: 'wealthTax' },
+  globals: { language: 'no' },
+  play: async ({ canvasElement }) => {
+    const canvas = await shown(canvasElement);
+    await expect(canvas.getByText('Formuesskatt')).toBeVisible();
+    await expect(canvas.getByLabelText('Bunnfradrag')).toBeVisible();
+    await expect(canvas.getByLabelText('Sats (%)')).toBeVisible();
+    await expect(canvas.getByLabelText('Høyere sats fra')).toBeVisible();
+    await expect(canvas.getByLabelText('Høyere sats (%)')).toBeVisible();
+    await expect(canvas.getByRole('button', { name: 'Slett Formuesskatt' })).toBeVisible();
+    await expect(canvas.getByText(/dobler bunnfradraget/)).toBeVisible();
   },
 };
 
@@ -226,6 +345,8 @@ export const Me: Story = {
   play: async ({ canvasElement }) => {
     const canvas = await shown(canvasElement);
     await expect(canvas.getByLabelText('Birth year')).toHaveValue(null);
+    // When work stops is up to each income, so there is one thing to fill in here.
+    await expect(canvas.getAllByRole('spinbutton')).toHaveLength(1);
     await expect(canvas.queryByRole('button', { name: /Delete/ })).toBeNull();
     await expect(dots(canvasElement)).toEqual([]);
   },

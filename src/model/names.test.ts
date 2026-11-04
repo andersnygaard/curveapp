@@ -10,12 +10,12 @@ const names: DefaultNames = {
   income: 'Lønn',
   transfer: 'Sparetrekk',
   budget: 'Budsjett',
-  budgetHousing: 'Bolig',
+  housing: 'Bolig',
   budgetLiving: 'Mat og forbruk',
   account: 'Fond',
   return: 'Aksjemarkedet',
   otp: 'OTP',
-  folketrygd: 'Folketrygden',
+  folketrygd: 'Alderspensjon',
   withdrawal: 'Uttak',
 };
 const words = [
@@ -60,7 +60,7 @@ describe('renaming boxes when the language changes', () => {
   });
 
   it('leaves boxes without a name alone', () => {
-    const me = { id: 'me', type: 'me', position: { x: 0, y: 0 }, data: { birthYear: 1980, retirementAge: null } } as PlacedBox;
+    const me = { id: 'me', type: 'me', position: { x: 0, y: 0 }, data: { birthYear: 1980 } } as PlacedBox;
     const graph = graphOf(me);
     expect(renameBoxes(graph, words)).toBe(graph);
   });

@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
-import { expect, fn, userEvent, waitFor, within } from 'storybook/test';
+import { expect, fireEvent, fn, userEvent, waitFor, within } from 'storybook/test';
 import type { WithdrawalSummary } from '../engine/statistics';
 import { fixedPlayer, growing, type FixedStock } from './fixedPlayer';
 import SimulationView from './SimulationView';
@@ -62,6 +62,12 @@ export const Running: Story = {
     const canvas = within(canvasElement);
     await expect(canvas.getByRole('heading', { name: 'Fund' })).toBeVisible();
     await expect(canvas.getByText(`Median after 30 years: ${money.format(growing(100_000, 0.04)(30))}`)).toBeVisible();
+    // The bands are only a picture, so what they show is also said in words.
+    const last = growing(100_000, 0.04)(30);
+    await expect(canvas.getByRole('img').getAttribute('aria-label')?.replace(/\s/g, ' ')).toContain(
+      `Eight in ten passes end between ${money.format(last * 0.7)} and ${money.format(last * 1.3)}.`,
+    );
+    await expect(canvas.getByText(/the inner band holds half of them and the outer band eight in ten/)).toBeVisible();
     await expect(canvas.getByText('Pass 3')).toBeVisible();
     await expect(canvas.getByRole('button', { name: '30 years' })).toHaveAttribute('aria-pressed', 'true');
     await expect(canvas.queryByRole('button', { name: 'To age 95' })).toBeNull();
@@ -158,6 +164,7 @@ const withdrawal: WithdrawalSummary = {
   surplus: paying(23_000, 15, 25),
   short: paying(0, 0, 0),
   tax: paying(0, 0, 0),
+  wealthTax: paying(0, 0, 0),
   surplusTo: 'Fund',
   withdrawn: 7_560_000,
   taxPaid: 0,
@@ -177,9 +184,85 @@ export const WithAWithdrawal: Story = {
     // It comes first, and the accounts keep their own graphs below it.
     const account = canvas.getByRole('heading', { name: 'Fund' });
     await expect(heading.compareDocumentPosition(account) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    await expect(canvasElement.querySelectorAll('canvas')).toHaveLength(1);
+    await expect(canvasElement.querySelectorAll('.chart-canvas')).toHaveLength(1);
     await waitFor(() => expect(canvasElement.querySelectorAll('.flows-layer')).toHaveLength(3));
-    await expect(canvas.getByText(/Living costs is covered for the whole period in 90\s?% of the passes\./)).toBeVisible();
+    await expect(canvas.getByRole('heading', { name: /Living costs is covered for the whole period in 90\s?% of the passes\./ })).toBeVisible();
+  },
+};
+
+// The answer to what the page is for comes first, and the others follow below it.
+export const TheFirstWithdrawalIsTheHeadline: Story = {
+  args: {
+    player: fixedPlayer({
+      stocks: [fund],
+      gates: [
+        { id: 'living', name: 'Living costs', heldShare: 0.9 },
+        { id: 'trips', name: 'Trips', heldShare: 0.5 },
+      ],
+    }),
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const headline = canvasElement.querySelector('.sim-headline')!;
+    await expect(headline).toHaveTextContent(/Living costs is covered/);
+    await expect(headline).not.toHaveTextContent(/Trips/);
+    await expect(canvasElement.querySelector('.sim-gate')).toHaveTextContent(/Trips is covered/);
+    // The lines behind it still need their numbers, so what they show is said right under them.
+    await expect(canvasElement.querySelector('.sim-legend')).toHaveTextContent(`Fund. Median after 30 years: ${money.format(growing(100_000, 0.04)(30))}.`);
+    await expect(canvas.getByText(/The thick line is the median/)).toBeVisible();
+  },
+};
+
+export const WithoutAGateTheMedianIsTheHeadline: Story = {
+  play: async ({ canvasElement }) => {
+    const median = `Fund. Median after 30 years: ${money.format(growing(100_000, 0.04)(30))}.`;
+    await expect(canvasElement.querySelector('.sim-headline')).toHaveTextContent(median);
+    await expect(canvasElement.querySelector('.sim-legend')).not.toHaveTextContent(median);
+    await expect(canvasElement.querySelector('.sim-gate')).toBeNull();
+  },
+};
+
+// A pension that is only calculated or that stops says less about the plan than the first real account.
+export const TheHeadlineSkipsWhatIsNotAnAccount: Story = {
+  args: {
+    player: fixedPlayer({
+      stocks: [
+        { id: 'national', name: 'National pension', line: () => 500_000, summary: { calculated: true } },
+        { id: 'otp', name: 'OTP', line: () => 300_000, summary: { closeDay: 3660 } },
+        fund,
+      ],
+    }),
+  },
+  play: async ({ canvasElement }) => {
+    await expect(canvasElement.querySelector('.sim-headline')).toHaveTextContent(/^Fund\./);
+  },
+};
+
+export const WithoutAnAccountTheFirstBoxIsTheHeadline: Story = {
+  args: {
+    player: fixedPlayer({ stocks: [{ id: 'national', name: 'National pension', line: () => 500_000, summary: { calculated: true } }] }),
+  },
+  play: async ({ canvasElement }) => {
+    await expect(canvasElement.querySelector('.sim-headline')).toHaveTextContent(/^National pension\./);
+  },
+};
+
+export const TheAuroraRunsFromEdgeToEdge: Story = {
+  play: async ({ canvasElement }) => {
+    const aurora = canvasElement.querySelector('.sim-aurora')!;
+    await expect(aurora).toHaveAttribute('aria-hidden', 'true');
+    const { left, right } = aurora.getBoundingClientRect();
+    const panel = canvasElement.querySelector('.panel')!.getBoundingClientRect();
+    await expect(left).toBeCloseTo(panel.left, 0);
+    await expect(right).toBeCloseTo(panel.right, 0);
+  },
+};
+
+export const TheHeadlineStaysAboveTheLines: Story = {
+  play: async ({ canvasElement }) => {
+    const content = canvasElement.querySelector('.sim-hero-content')!;
+    await expect(getComputedStyle(content).position).toBe('relative');
+    await expect(canvasElement.querySelector('.sim-aurora')!.compareDocumentPosition(content) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   },
 };
 
@@ -194,6 +277,37 @@ export const AWithdrawalWithTax: Story = {
     const canvas = within(canvasElement);
     await expect(canvas.getByText(`Paid out in total: ${money.format(7_560_000)} after tax, and ${money.format(1_800_000)} in tax`)).toBeVisible();
     await waitFor(() => expect(canvasElement.querySelector('.flows-tax')).not.toBeNull());
+  },
+};
+
+const paysWealthTax = fixedPlayer({
+  stocks: [fund],
+  withdrawals: [{ ...withdrawal, wealthTax: paying(5_000, 15, years), taxPaid: 900_000, perMonthMax: 75_000 }],
+});
+
+async function hoverLateInTheChart(canvasElement: HTMLElement) {
+  await waitFor(() => expect(canvasElement.querySelector('.flows-tax')).not.toBeNull());
+  const svg = canvasElement.querySelector('.flows svg')!;
+  const { left, width } = svg.getBoundingClientRect();
+  await fireEvent.pointerMove(svg, { clientX: left + width * 0.8 });
+  return within(canvasElement).findByRole('status');
+}
+
+export const AWithdrawalWithWealthTax: Story = {
+  args: { player: paysWealthTax },
+  play: async ({ canvasElement }) => {
+    await expect(
+      within(canvasElement).getByText(`Paid out in total: ${money.format(7_560_000)} after tax, and ${money.format(900_000)} in tax`),
+    ).toBeVisible();
+    await expect(await hoverLateInTheChart(canvasElement)).toHaveTextContent(`Wealth tax${money.format(5_000)}`);
+  },
+};
+
+export const AWithdrawalWithWealthTaxInNorwegian: Story = {
+  args: { player: paysWealthTax },
+  globals: { language: 'no' },
+  play: async ({ canvasElement }) => {
+    await expect(await hoverLateInTheChart(canvasElement)).toHaveTextContent('Formuesskatt');
   },
 };
 
@@ -249,7 +363,7 @@ export const ARegularAccountDoesNot: Story = {
 export const KeepsToAMaximumWidth: Story = {
   args: { player: fixedPlayer({ stocks: [fund], withdrawals: [withdrawal] }) },
   play: async ({ canvasElement }) => {
-    const MAXIMUM = 960;
+    const MAXIMUM = 1168;
     const panel = canvasElement.querySelector('.panel')!;
     const { paddingLeft, paddingRight } = getComputedStyle(panel);
     const room = panel.clientWidth - parseFloat(paddingLeft) - parseFloat(paddingRight);
@@ -264,9 +378,38 @@ export const KeepsToAMaximumWidth: Story = {
   },
 };
 
+// With nothing random all the passes end in the same place, and that is not worth saying twice.
+export const BandsWithNoWidthAreNotMentioned: Story = {
+  args: {
+    player: fixedPlayer({
+      stocks: [
+        {
+          ...fund,
+          summary: {
+            spread: {
+              p10: Float64Array.from({ length: years + 1 }, () => 100_000),
+              p25: Float64Array.from({ length: years + 1 }, () => 100_000),
+              p75: Float64Array.from({ length: years + 1 }, () => 100_000),
+              p90: Float64Array.from({ length: years + 1 }, () => 100_000),
+            },
+          },
+        },
+      ],
+    }),
+  },
+  play: async ({ canvasElement }) => {
+    const label = within(canvasElement).getByRole('img').getAttribute('aria-label');
+    await expect(label).toMatch(/^Fund\. Median after 30 years/);
+    await expect(label).not.toMatch(/Eight in ten/);
+  },
+};
+
 export const InNorwegian: Story = {
   globals: { language: 'no' },
   play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByRole('img', { name: /Åtte av ti pass ender mellom/ })).toBeVisible();
+    await expect(canvas.getByText(/det indre båndet rommer halvparten av dem og det ytre åtte av ti/)).toBeVisible();
     await expect(within(canvasElement).getByRole('button', { name: 'Pause' })).toBeVisible();
     await expect(within(canvasElement).getByRole('button', { name: '30 år' })).toBeVisible();
   },

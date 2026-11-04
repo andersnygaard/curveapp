@@ -1,5 +1,6 @@
 // The written plan, from boxes and wires to dates and amounts. All amounts are made-up examples.
 import { describe, expect, it } from 'vitest';
+import { taxOnPension } from '../engine/norway';
 import { runPass } from '../engine/engine';
 import { noNoise } from '../engine/random';
 import { compile, DEFAULT_YEARS, LAST_AGE } from './compile';
@@ -10,10 +11,10 @@ import type { Box, SimulationInput, Wire } from './types';
 const START = '2027-01-01';
 const BIRTH_YEAR = 1990;
 
-const me = (retirementAge: number | null = 60, birthYear = BIRTH_YEAR): Box => ({ id: 'me', type: 'me', data: { birthYear, retirementAge } });
+const me = (birthYear = BIRTH_YEAR): Box => ({ id: 'me', type: 'me', data: { birthYear } });
 const g = (gGrowth = 0): Box => ({ id: 'g', type: 'g', data: { g: 100_000, gGrowth, standardDeviation: 0 } });
-const income = (amount = 30_000, interval = 'monthly', pensionBasis = 360_000): Box =>
-  ({ id: 'i', type: 'income', data: { name: 'Pay', amount, interval, pensionBasis, stopsAtRetirement: true } }) as Box;
+const income = (amount = 30_000, interval = 'monthly', pensionBasis = 360_000, toAge: number | null = 60): Box =>
+  ({ id: 'i', type: 'income', data: { name: 'Pay', amount, interval, pensionBasis, fromAge: null, toAge } }) as Box;
 const transfer = (amount = 5_000): Box => ({ id: 't', type: 'transfer', data: { name: 'Saving', amount, interval: 'monthly' } });
 const account = (startAmount = 100_000): Box => ({
   id: 'a',
@@ -33,7 +34,7 @@ const folketrygd = (startAmount = 0, payoutAge = 67): Box => ({
 const gate = (startAge = 60, perMonth = 20_000): Box => ({
   id: 'w',
   type: 'withdrawal',
-  data: { name: 'Living', startAge, mode: 'amount', perMonth, percent: 4, pensionTax: 0 },
+  data: { name: 'Living', startAge, mode: 'amount', perMonth, percent: 4 },
 });
 
 const money = (source: string, target: string): Wire => wireOf(source, target, 'money');
@@ -121,6 +122,12 @@ describe('what the plan makes of the amounts', () => {
     expect(starts[0].lastAmount).toBeGreaterThan(starts[0].amount * 1.5);
   });
 
+  it('still says that a withdrawal stops when a pension takes over for good', () => {
+    const { dates } = planOf({ boxes: [me(), g(), account(50_000_000), folketrygd(9_600_000, 50), gate(40, 10_000)], wires: [money('a', 'w'), money('f', 'w')] });
+    const lines = dates.flatMap((date) => date.lines).filter((line) => line.flow === 'withdrawal');
+    expect(lines.map((line) => line.change)).toEqual(['starts', 'stops']);
+  });
+
   it('gives a yearly income one line, whatever falls between the payments', () => {
     const { dates } = planOf({ boxes: [me(), income(60_000, 'yearly', 0), account()], wires: [money('i', 'a')] });
     const lines = dates.flatMap((date) => date.lines).filter((line) => line.flow === 'deposit');
@@ -130,7 +137,7 @@ describe('what the plan makes of the amounts', () => {
 
   it('says when an account runs out, without a date for the last small amount', () => {
     const { dates } = planOf({
-      boxes: [me(40), account(100_000), gate(40, 10_000)],
+      boxes: [me(), account(100_000), gate(40, 10_000)],
       wires: [money('a', 'w')],
     });
     const short = dates.find((date) => lineIn(date, 'unmet', 'starts'))!;
@@ -147,18 +154,71 @@ describe('what the plan makes of the amounts', () => {
   });
 });
 
+describe('an income wired straight to a withdrawal in the plan', () => {
+  const job = (amount: number, interval = 'monthly', toAge: number | null = 60) => income(amount, interval, 0, toAge);
+  const wired = [money('i', 'w'), money('a', 'w'), money('w', 'a')];
+
+  it('says that it goes to the withdrawal, and that what is left over goes on', () => {
+    const { dates } = planOf({ boxes: [me(), job(30_000), account(500_000), gate(50, 20_000)], wires: wired });
+    expect(lineIn(dates[0], 'deposit', 'starts', 'Pay')).toMatchObject({ to: 'Living', amount: 30_000, every: 'monthly' });
+    expect(lineIn(dates[0], 'surplus', 'starts')).toMatchObject({ from: 'Living', to: 'Fund', amount: 30_000 });
+    expect(lineIn(atAge(dates, 50), 'surplus', 'changes')).toMatchObject({ to: 'Fund', amount: 10_000 });
+  });
+
+  it('says when the accounts take over from it', () => {
+    const { dates } = planOf({ boxes: [me(), job(30_000), account(5_000_000), gate(50, 20_000)], wires: wired });
+    const date = atAge(dates, 60);
+    expect(lineIn(date, 'deposit', 'stops', 'Pay')).toMatchObject({ to: 'Living' });
+    expect(lineIn(date, 'surplus', 'stops')).toBeDefined();
+    expect(lineIn(date, 'withdrawal', 'starts')).toMatchObject({ from: 'Fund', amount: 20_000, every: 'monthly' });
+  });
+
+  it('has no tax line, since it is already after tax', () => {
+    const { dates } = planOf({ boxes: [me(), job(30_000), account(500_000), gate(50, 20_000)], wires: wired });
+    expect(dates.flatMap((date) => date.lines).some((line) => line.flow === 'tax')).toBe(false);
+  });
+
+  it('does not start and stop the withdrawal every year around a yearly income', () => {
+    const { dates } = planOf({ boxes: [me(), job(100_000, 'yearly', null), account(50_000_000), gate(40, 10_000)], wires: wired });
+    const lines = dates.flatMap((date) => date.lines).filter((line) => line.flow === 'withdrawal');
+    expect(lines.filter((line) => line.change === 'starts')).toHaveLength(1);
+    expect(lines.filter((line) => line.change === 'stops').length).toBeLessThanOrEqual(1);
+  });
+
+  it('does not change the withdrawal every year when a yearly income covers a part of that month', () => {
+    const { dates } = planOf({ boxes: [me(), job(4_000, 'yearly', null), account(50_000_000), gate(40, 10_000)], wires: [money('i', 'w'), money('a', 'w')] });
+    const lines = dates.flatMap((date) => date.lines).filter((line) => line.flow === 'withdrawal');
+    expect(lines.filter((line) => line.change !== 'stops')).toHaveLength(1);
+    expect(lines[0]).toMatchObject({ change: 'starts', amount: 10_000, every: 'monthly' });
+  });
+
+  it('keeps a weekly income on few lines, although some months have five pay days', () => {
+    const { dates } = planOf({ boxes: [me(), job(1_500, 'weekly', null), account(50_000_000), gate(40, 4_000)], wires: wired });
+    const lines = dates.flatMap((date) => date.lines).filter((line) => line.flow === 'surplus');
+    expect(lines.filter((line) => line.change === 'changes').length).toBeLessThanOrEqual(1);
+    expect(dates.length).toBeLessThan(10);
+  });
+});
+
 describe('the tax in the plan', () => {
+  it('has no tax line for a pension too small to be taxed', () => {
+    const { dates } = planOf({ boxes: [me(), g(), account(), folketrygd(1_200_000, 67), gate(67, 2_000)], wires: [money('f', 'w'), money('w', 'a')] });
+    expect(lineIn(atAge(dates, 67), 'tax', 'starts')).toBeUndefined();
+  });
+
   it('has a line of its own for tax on pension, and says what the pension covers after it', () => {
-    const living = { id: 'w', type: 'withdrawal', data: { name: 'Living', startAge: 67, mode: 'amount', perMonth: 2_000, percent: 4, pensionTax: 25 } } as Box;
-    const { dates } = planOf({ boxes: [me(), g(), account(), folketrygd(1_200_000, 67), living], wires: [money('f', 'w'), money('w', 'a')] });
+    const living = { id: 'w', type: 'withdrawal', data: { name: 'Living', startAge: 67, mode: 'amount', perMonth: 2_000, percent: 4 } } as Box;
+    const { dates } = planOf({ boxes: [me(), g(), account(), folketrygd(12_000_000, 67), living], wires: [money('f', 'w'), money('w', 'a')] });
     const date = atAge(dates, 67);
     const pension = lineIn(date, 'pension', 'starts', 'National')!;
-    expect(lineIn(date, 'tax', 'starts', 'Living')!.amount).toBeCloseTo(pension.amount * 0.25, 0);
-    expect(lineIn(date, 'surplus', 'starts')!.amount).toBeCloseTo(pension.amount * 0.75 - 2_000, 0);
+    const tax = taxOnPension(pension.amount * 12, true) / 12;
+    expect(tax).toBeGreaterThan(0);
+    expect(lineIn(date, 'tax', 'starts', 'Living')!.amount).toBeCloseTo(tax, 0);
+    expect(lineIn(date, 'surplus', 'starts')!.amount).toBeCloseTo(pension.amount - tax - 2_000, 0);
   });
 
   it('has no tax line when nothing is taxed', () => {
-    const { dates } = planOf({ boxes: [me(40), account(1_000_000), gate(40, 10_000)], wires: [money('a', 'w')] });
+    const { dates } = planOf({ boxes: [me(), account(1_000_000), gate(40, 10_000)], wires: [money('a', 'w')] });
     expect(dates.flatMap((date) => date.lines).some((line) => line.flow === 'tax')).toBe(false);
   });
 
@@ -169,10 +229,86 @@ describe('the tax in the plan', () => {
       data: { name: 'Fund', startAmount: 100_000, startDate: START, currency: 'NOK', accountType: 'ask', taxRate: 50, inflation: 0, shieldRate: 0, unusedShield: 0 },
     };
     const market: Box = { id: 'm', type: 'return', data: { name: 'Market', annualReturn: 100, returnInterval: 'yearly', standardDeviation: 0 } };
-    const { dates } = planOf({ boxes: [me(40), ask, market, gate(40, 200_000)], wires: [money('a', 'w'), wireOf('m', 'a', 'influence')] });
+    const { dates } = planOf({ boxes: [me(), ask, market, gate(40, 200_000)], wires: [money('a', 'w'), wireOf('m', 'a', 'influence')] });
     const lines = dates.flatMap((date) => date.lines);
     expect(lines.find((line) => line.flow === 'withdrawal')?.from).toBe('Fund');
     expect(lines.find((line) => line.flow === 'tax')?.from).toBe('Fund');
+  });
+});
+
+describe('housing in the plan', () => {
+  const home = (loan = 1_000_000, paidOff = '2040-06-01', value = 3_000_000, id = 'h', name = 'Home'): Box => ({
+    id,
+    type: 'housing',
+    data: { name, kind: 'primary', value, loan, paidOff },
+  });
+  const housingLines = (dates: PlanDate[]) => dates.flatMap((date) => date.lines).filter((line) => line.flow === 'housing');
+  const dateOf = ({ dateMs }: PlanDate) => new Date(dateMs).toISOString().slice(0, 10);
+
+  it('says what it is worth and owes on the first date, and when the loan is paid off', () => {
+    const { dates } = planOf({ boxes: [me(), account(), home()], wires: [] });
+    expect(dateOf(dates[0])).toBe(START);
+    expect(lineIn(dates[0], 'housing', 'starts')).toMatchObject({ from: 'Home', to: null, amount: 3_000_000, loan: 1_000_000, every: 'once' });
+    const paidOff = dates.find((date) => lineIn(date, 'housing', 'stops'))!;
+    expect(dateOf(paidOff)).toBe('2040-06-01');
+    expect(paidOff.age).toBe(50);
+    expect(lineIn(paidOff, 'housing', 'stops')).toMatchObject({ from: 'Home' });
+  });
+
+  it('keeps one set of lines for each box, so a home and a cabin are apart', () => {
+    const cabin = home(200_000, '2030-01-01', 800_000, 'c', 'Cabin');
+    const { dates } = planOf({ boxes: [me(), account(), home(), cabin], wires: [] });
+    expect(lineIn(dates[0], 'housing', 'starts', 'Home')).toMatchObject({ amount: 3_000_000 });
+    expect(lineIn(dates[0], 'housing', 'starts', 'Cabin')).toMatchObject({ amount: 800_000, loan: 200_000 });
+    expect(dateOf(dates.find((date) => lineIn(date, 'housing', 'stops', 'Cabin'))!)).toBe('2030-01-01');
+    expect(dateOf(dates.find((date) => lineIn(date, 'housing', 'stops', 'Home'))!)).toBe('2040-06-01');
+  });
+
+  it.each([
+    ['no loan', 0, '2040-06-01'],
+    ['a date after the plan ends', 1_000_000, '2200-01-01'],
+    ['no date', 1_000_000, ''],
+  ])('has no line about paying off with %s', (_, loan, paidOff) => {
+    const { dates } = planOf({ boxes: [me(), account(), home(loan, paidOff)], wires: [] });
+    expect(housingLines(dates).map((line) => line.change)).toEqual(['starts']);
+    expect(lineIn(dates[0], 'housing', 'starts')!.loan).toBe(loan);
+  });
+
+  it('owes nothing when the date has already passed', () => {
+    const { dates } = planOf({ boxes: [me(), account(), home(1_000_000, '2020-01-01')], wires: [] });
+    expect(housingLines(dates).map((line) => line.change)).toEqual(['starts']);
+    expect(lineIn(dates[0], 'housing', 'starts')!.loan).toBe(0);
+  });
+
+  it('has no line for a box with nothing in it', () => {
+    const { dates } = planOf({ boxes: [me(), account(), home(0, '', 0)], wires: [] });
+    expect(housingLines(dates)).toEqual([]);
+  });
+
+  it('is left out of what the accounts hold', () => {
+    const { dates } = planOf({ boxes: [me(), income(), transfer(), account(), home()], wires: saving });
+    const paidOff = dates.find((date) => lineIn(date, 'housing', 'stops'))!;
+    expect(paidOff.balances.map((balance) => balance.name)).toEqual(['Fund']);
+    for (const date of dates) expect(date.balances.map((balance) => balance.name)).not.toContain('Home');
+  });
+
+  it('adds no balances to the first date, where they would only repeat the opening', () => {
+    expect(planOf({ boxes: [me(), account(), home()], wires: [] }).dates[0].balances).toEqual([]);
+  });
+
+  it('changes nothing else in the plan or the simulation', () => {
+    const boxes = [me(), g(), income(), transfer(), account(500_000), otp(1_000_000), folketrygd(1_000_000), gate()];
+    const wires = [...saving, ...allIntoGate];
+    const withHome = { boxes: [...boxes, home()], wires };
+    const others = (input: SimulationInput) =>
+      planOf(input).dates.flatMap((date) => date.lines.filter((line) => line.flow !== 'housing'));
+    expect(others(withHome)).toEqual(others({ boxes, wires }));
+    const closing = (input: SimulationInput) => runPass(compile(input, 40), noNoise).closing;
+    expect(closing(withHome)).toEqual(closing({ boxes, wires }));
+  });
+
+  it('starts no plan by itself, since nothing then holds money', () => {
+    expect(planOf({ boxes: [me(), home()], wires: [] }).dates).toEqual([]);
   });
 });
 

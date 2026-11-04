@@ -3,11 +3,13 @@ import type { AccountData } from './boxes/account';
 import type { BudgetData } from './boxes/budget';
 import type { FolketrygdData } from './boxes/folketrygd';
 import type { GData } from './boxes/g';
+import type { HousingData } from './boxes/housing';
 import type { IncomeData } from './boxes/income';
 import type { MeData } from './boxes/me';
 import type { OtpData } from './boxes/otp';
 import type { ReturnData } from './boxes/returnBox';
 import type { TransferData } from './boxes/transfer';
+import type { WealthTaxData } from './boxes/wealthTax';
 import type { WithdrawalData } from './boxes/withdrawal';
 
 // Money moves kroner. Influence changes a value without money coming from another box. Basis only reads a number.
@@ -28,6 +30,8 @@ export type ReturnBox = BoxOf<'return', ReturnData>;
 export type OtpBox = BoxOf<'otp', OtpData>;
 export type FolketrygdBox = BoxOf<'folketrygd', FolketrygdData>;
 export type WithdrawalBox = BoxOf<'withdrawal', WithdrawalData>;
+export type HousingBox = BoxOf<'housing', HousingData>;
+export type WealthTaxBox = BoxOf<'wealthTax', WealthTaxData>;
 export type GBox = BoxOf<'g', GData>;
 export type MeBox = BoxOf<'me', MeData>;
 
@@ -40,6 +44,8 @@ export type Box =
   | OtpBox
   | FolketrygdBox
   | WithdrawalBox
+  | HousingBox
+  | WealthTaxBox
   | GBox
   | MeBox;
 export type BoxType = Box['type'];
@@ -75,7 +81,8 @@ export interface DefaultNames {
   income: string;
   transfer: string;
   budget: string;
-  budgetHousing: string;
+  // Both a housing box and a line in a budget, so changing language has one word to go by.
+  housing: string;
   budgetLiving: string;
   account: string;
   return: string;

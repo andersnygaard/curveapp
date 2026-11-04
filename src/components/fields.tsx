@@ -79,12 +79,3 @@ export function SelectField<T extends string>({ label, value, onChange, options 
     </Field>
   );
 }
-
-export function CheckField({ label, value, onChange }: ValueProps<boolean>) {
-  return (
-    <label className="box-check">
-      <input className="nodrag" type="checkbox" checked={value} onChange={(event) => onChange(event.target.checked)} />
-      <span>{label}</span>
-    </label>
-  );
-}

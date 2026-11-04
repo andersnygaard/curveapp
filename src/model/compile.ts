@@ -1,6 +1,6 @@
 // Turns what the user drew into what the engine runs. No rule about money or pensions lives here.
 import { orderRules, type Factor, type GateSources, type Model, type Rule, type Stock } from '../engine/engine';
-import { G, G_REGULATION_DATE, nextG } from '../engine/norway';
+import { G, G_REGULATION_DATE, nextG, PENSION_TAX_RATE, taxPensions, type TaxedPension } from '../engine/norway';
 import { stepFactor } from '../engine/rules';
 import { DAYS_PER_YEAR, Timeline } from '../engine/timeline';
 import { specOf } from './catalog';
@@ -48,6 +48,7 @@ export function compile(input: SimulationInput, years: number): Model {
   const factors: Factor[] = [];
   const rules: Rule[] = [];
   const gateSources: GateSources[] = [];
+  const pensions: TaxedPension[] = [];
   const stockIndex = new Map<string, number>();
   let random = false;
 
@@ -69,6 +70,9 @@ export function compile(input: SimulationInput, years: number): Model {
     addGateSources(sources) {
       gateSources.push(sources);
     },
+    addPension(pension) {
+      pensions.push(pension);
+    },
     stockOf: (box) => stockIndex.get(box.id)!,
     markCanRunOut(stock) {
       stocks[stock].canRunOut = true;
@@ -88,8 +92,10 @@ export function compile(input: SimulationInput, years: number): Model {
     context.addFactor({ id: G, value, previous: value / (1 + growth) }, volatility > 0);
     rules.push(stepFactor(G, timeline.fires({ annually: G_REGULATION_DATE, from: 1 }), nextG(growth, volatility)));
   }
+  context.addFactor({ id: PENSION_TAX_RATE, value: 0, previous: 0 }, false);
   for (const box of input.boxes) specOf(box).declare?.(box, context);
   for (const box of input.boxes) specOf(box).build?.(box, context);
+  if (pensions.length > 0) rules.push(taxPensions(pensions, (day) => timeline.yearIndex(day), timeline.fires({ every: 'monthly' })));
 
   // Calculated balances go last, so they are not read as part of the savings.
   const shown = stocks.flatMap((stock, index) => (stock.hidden ? [] : [index]));

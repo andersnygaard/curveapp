@@ -1,6 +1,8 @@
 // What an income pays and how long it lasts, read by the boxes that an income is wired to.
+import { OUTSIDE } from '../../engine/engine';
+import { taxPaidAt } from '../../engine/rules';
 import type { CompileContext, GraphQuery } from '../spec';
-import type { Box, IncomeBox } from '../types';
+import type { Box, FolketrygdBox, IncomeBox, OtpBox } from '../types';
 
 export type IncomeInterval = 'weekly' | 'monthly' | 'quarterly' | 'yearly';
 
@@ -14,25 +16,41 @@ export function incomesOf(boxes: Box[]): IncomeBox[] {
   return boxes.filter((box): box is IncomeBox => box.type === 'income');
 }
 
-// The first day without this income, or undefined if it runs through the whole period.
-export function incomeEnd(income: IncomeBox, context: CompileContext): number | undefined {
-  const { retirementAge } = context.assumptions;
-  if (!income.data.stopsAtRetirement || retirementAge === null) return undefined;
-  return context.dayOfAge(retirementAge) ?? undefined;
+// The flow an income's payments to a box are recorded under.
+export const incomeLabel = (income: IncomeBox, target: Box) => `${income.id}:${target.id}`;
+
+// The first day with this income and the first day without it. An empty age leaves that end open, and so does an age
+// without a birth year to count from.
+function incomePeriod({ data }: IncomeBox, context: CompileContext) {
+  const dayOf = (age: number | null) => (age === null ? undefined : (context.dayOfAge(age) ?? undefined));
+  return { from: dayOf(data.fromAge), until: dayOf(data.toAge) };
 }
 
 export const incomeSchedule = (income: IncomeBox, context: CompileContext) => ({
   every: income.data.interval,
-  until: incomeEnd(income, context),
+  ...incomePeriod(income, context),
 });
 
-// The pension basis of the incomes that still run on a given day.
+export function incomeRuns(income: IncomeBox, context: CompileContext): (day: number) => boolean {
+  const { from = -Infinity, until = Infinity } = incomePeriod(income, context);
+  return (day) => day >= from && day < until;
+}
+
+// The pension basis of the incomes that run on a given day.
 export function salaryFrom(boxes: Box[], context: CompileContext): (day: number) => number {
-  const incomes = incomesOf(boxes).map((income) => ({
-    basis: basisOf(income),
-    end: incomeEnd(income, context) ?? Infinity,
-  }));
-  return (day) => incomes.reduce((sum, income) => (day < income.end ? sum + income.basis : sum), 0);
+  const incomes = incomesOf(boxes).map((income) => ({ basis: basisOf(income), runs: incomeRuns(income, context) }));
+  return (day) => incomes.reduce((sum, income) => (income.runs(day) ? sum + income.basis : sum), 0);
+}
+
+// Tax on pension is per person and not per box, so a pension only says what it pays under and where the money goes.
+export function addTaxedPension(pension: OtpBox | FolketrygdBox, label: string, context: CompileContext) {
+  const target = context.outOf(pension, 'money')[0];
+  context.addPension({
+    label,
+    to: target ? context.stockOf(target) : OUTSIDE,
+    taxShownAs: target?.type === 'withdrawal' ? taxPaidAt(context.stockOf(target)) : undefined,
+    givesCredit: pension.type === 'folketrygd',
+  });
 }
 
 // What a payment has left after the fixed transfers.

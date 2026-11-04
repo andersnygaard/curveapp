@@ -14,9 +14,9 @@
 - Kontaktene har ulik form, og bare like former kan kobles. Hvilke bokser som kan kobles til hva står i filen til bokstypen.
 - Inntekt er netto utbetalt. Pensjonsgrunnlag er et eget felt, siden OTP og Folketrygden regnes av brutto.
 - Avkastning er en egen boks. Kontoer på samme boks følger samme marked, og kontoer på hver sin boks følger hvert sitt.
-- G-boksen og boksen Deg selv er statiske og har ingen connector. G finnes så lenge noe leser den, og Deg selv står alltid på lerretet. Fødselsår og alder du slutter å jobbe ved ligger bare i local storage.
+- G-boksen og boksen Deg selv er statiske og har ingen connector. G finnes så lenge noe leser den, og Deg selv står alltid på lerretet. Fødselsåret ligger bare i local storage.
 - Planen står i et panel ved siden av tegneflaten og oppdateres mens du tegner. Den regnes i en egen Web Worker (`src/simulation/plan.worker.ts`) av `src/model/plan.ts`, som kjører ett pass uten tilfeldigheter og leser hva motoren faktisk flyttet. Den sier derfor det samme som simuleringen, og en ny bokstype kommer med av seg selv så lenge reglene bruker de samme merkelappene.
-- Planen viser en linje når noe starter, endrer seg med mer enn 10 % eller stopper. Beløp som følger G holder seg på én linje, og utbetalinger under 100 kr tas ikke med.
+- Planen viser en linje når noe starter, endrer seg med mer enn 10 % eller stopper. Beløp som følger G holder seg på én linje, og utbetalinger under 100 kr tas ikke med. Formuesskatten får én linje så lenge den varer, med laveste og høyeste beløp, siden den endrer seg hvert år uten at noe er bestemt.
 
 ## Simulering
 
@@ -33,13 +33,19 @@
 ### Bokstypene i simuleringen
 
 - Inntekt er penger og kan ikke brukes to ganger. Trekk går først, og det som er igjen går til en connector uten fast beløp. Det ingen tar regnes som brukt.
+- Hver inntekt har Fra alder og Til alder. Tomt felt betyr fra starten eller ut hele perioden, og uten fødselsår løper inntekten hele perioden. OTP og Folketrygden tjener bare opp mens inntekten løper.
 - Budsjett trekker linjene sine fra inntekten og sender resten videre. Regnestykket gjøres over året, så kvartalsvis inntekt sparer like mye som samme penger månedlig.
 - OTP er en konto. Hver utbetaling av lønn setter inn sin del av årets innskudd, som er 5 % av pensjonsgrunnlaget opp til 7,1 G og 10 % mellom 7,1 og 12 G. Her brukes G fra 1. mai. Utbetalingen regnes ut på nytt hvert år, så beløpet følger markedet og kontoen tømmes ved slutten.
 - Folketrygden er en beregnet beholdning og ikke penger, så den skal ikke summeres med sparing. Hver 1. mai reguleres den med G-veksten. Hver 31. desember legges forrige års opptjening til, som er 18,1 % av pensjonsgrunnlaget opp til 7,1 ganger gjennomsnittlig G. Fra utbetalingsalderen stopper streken, og pensjonen er beholdningen delt på delingstallet. Tomt felt gir et anslag.
-- Uttak dekker et behov i kroner eller prosent fra en startalder. Pensjon teller først, det som mangler tas fra kontoene etter størrelse, og det som er til overs går videre. Prosent gjelder kontoene første dag, og beløpet ligger fast etter det. Beløpet er før skatt.
+- Uttak dekker et behov i kroner eller prosent fra en startalder. Pensjon og inntekt teller først, det som mangler tas fra kontoene etter størrelse, og det som er til overs går videre. Prosent gjelder kontoene første dag, og beløpet ligger fast etter det. Beløpet er før skatt.
+- En inntekt kan kobles rett til Uttak. Den er allerede netto, så den får ingen pensjonsskatt. Uttak gjøres opp hver måned, så en årlig inntekt dekker bare måneden den kommer, og resten går videre som overskudd. Det samme gjelder inntekt før Uttak starter.
 - En ASK-konto følger med på innskuddene, og det som overstiger dem skattes. Skatten regnes av nominell gevinst, så innskuddene mister verdi med inflasjonen i regnestykket. Uttak regnes først som innskudd. Skjermingsfradrag er ikke med, og skatt trekkes foreløpig ikke fra uttak.
 - Alle bokser i et pass følger samme G-bane, og pensjonsgrunnlaget følger G. Netto inntekt ligger fast i dagens kroner.
+- Bolig flytter ingen penger og blir ingenting i motoren. Lånet går jevnt ned fra starten til datoen, og det er bare Formuesskatt som leser det.
+- Formuesskatt er en boks uten connector, og det kan bare være én. Den regnes hver 31. desember av det hvert pass har på kontoene den dagen. ASK teller 80 %, vanlig konto 100 %, og primærbolig, sekundærbolig og hytte etter egne satser, mens OTP og Folketrygden holdes utenfor. Lån fordeles etter verdi, og delen som faller på en ASK trekkes med 80 %. Den tas fra kontoene etter størrelse, med skatt på gevinst, etter alt annet som trekkes den dagen. Det kontoene ikke dekker blir stående ubetalt uten gjeld. Oppsett uten boksen regner som før, så det er ved å slette den at skatten slås av.
 
 ## Ikke kontrollert
 
 Reglene for Folketrygden og OTP bygger på utregningen i AND-59 og AND-60. De er ikke kontrollert mot Nav eller avtalen hos Storebrand, og skattesatsen på ASK er ikke kontrollert hos Skatteetaten. Delingstallene er anslag.
+
+Formuesskatten bygger på satsene for 2026 i AND-96, og eksemplene er regnet for hånd og ikke sjekket i Skatteetatens kalkulator. Det er ikke bekreftet at OTP og Folketrygden holdes utenfor, at lån på hytte trekkes fullt ut, at grensen på 14 mill. kr gjelder per bolig eller at bankinnskudd alltid teller 100 %. Skatten betales i virkeligheten året etter, og hytte teller her det høyeste den kan.

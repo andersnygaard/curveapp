@@ -1,11 +1,16 @@
 ---
 name: linear-task
 description: Work the Curve board in Linear. Finds the next issue in project Curve with status Todo or label "Mer arbeid", does the work in this repo, documents it with a Playwright screenshot and a comment on the issue, then moves it to In Review. Also reads Backlog issues and asks follow-up questions where a task needs more shaping. Use when the user runs /linear-task, usually through /loop 5m /linear-task, or asks to check the Curve board or take the next task ("sjekk boardet", "ta neste oppgave"). For one-off lookups or edits in Linear, use the linear skill instead.
+context: fork
+agent: general-purpose
+background: false
 ---
 
 # Linear task
 
 Do the work on at most one issue per run, then stop. The user usually runs this unattended in a loop, so a run must be safe to repeat and nobody is watching the terminal. The board is the only memory between runs: every outcome below leaves the issue in a state the next poll skips, until the user says otherwise.
+
+Every run is its own subagent (`context: fork`) and must stay that way, so a long loop does not fill the main session until it fails with "prompt too long". The main session only gets the closing lines from "Finish the run". `background: false` makes it wait for those lines, so the next firing cannot start on top of a run that is still working.
 
 Running this skill is the user's go-ahead for these writes on the issues it handles: state changes on the issue being worked on, the labels named here, comments and uploaded screenshots. Anything else in Linear (new issues, edited descriptions, deletes) still follows the ask-first rule in the `linear` skill.
 
@@ -36,13 +41,13 @@ node "$L" gql @"$T/poll.graphql"
 node "$L" gql @"$T/backlog.graphql" | node "$T/backlog.mjs"
 ```
 
-The first returns what to work on: issues in Curve (P-AND-3) that are in Todo (new tasks) or carry `Mer arbeid` (the user wants more done), in any state except Canceled and Duplicate. A `Mer arbeid` label on a Backlog or Done issue counts. Issues labelled `Trenger avklaring` are left out because they wait for the user.
+The first returns what to work on: issues in Curve (P-AND-3) that are in Todo (new tasks) or carry `Mer arbeid` (the user wants more done), in any state except Canceled and Duplicate. A `Mer arbeid` label on a Backlog or Done issue counts. Issues labelled `Trenger mer oppfølging` or `Trenger avklaring` are left out because they wait for the user.
 
 The second sorts the Backlog for step 2: `review` is new or has changed since it was last read, `waiting` has an open question, and `read` is read and ready for Todo.
 
 If nothing is on the work list and `review` is empty, reply with one line and stop, with no comments or other writes. Name what is waiting so the user can see why nothing happened, and leave out empty parts: `Ingen oppgaver å jobbe med. Venter på svar: AND-56. Lest og klar for Todo: AND-57, AND-58.` This is the normal case in a loop and should stay cheap and quiet.
 
-Otherwise do step 2 if `review` has issues, then steps 3 to 8 if there is work. For the work, take the issue with the lowest number, whether it is new or carries `Mer arbeid`, because the user wants tasks done in order where possible. The one exception is priority 1 (urgent), which goes first. A lower-numbered issue still in Backlog or waiting on `Trenger avklaring` does not hold the others back. If the chosen issue actually needs that work, step 4 covers it.
+Otherwise do step 2 if `review` has issues, then steps 3 to 8 if there is work. For the work, take the issue with the lowest number, whether it is new or carries `Mer arbeid`, because the user wants tasks done in order where possible. The one exception is priority 1 (urgent), which goes first. A lower-numbered issue still in Backlog or waiting on one of those labels does not hold the others back. If the chosen issue actually needs that work, step 4 covers it.
 
 ## 2. Read the Backlog with curiosity
 
@@ -57,7 +62,7 @@ Then post one comment. Both outcomes get one, because the 🤖 comment is how th
 **If it needs more,** ask what would change what gets built: at most three questions, most important first, each with a suggested answer the user can accept with a "ja". Skip what the issue or its comments already answer, and take "velg selv" as an answer. Add the label so the open question shows on the board:
 
 ```bash
-node "$L" update AND-57 --add-label "Trenger avklaring"
+node "$L" update AND-57 --add-label "Trenger mer oppfølging"
 ```
 
 ```markdown
@@ -68,10 +73,10 @@ node "$L" update AND-57 --add-label "Trenger avklaring"
 1. <spørsmål> Forslag: <konkret svar>
 2. <spørsmål> Forslag: <konkret svar>
 
-Svar her, så leser jeg det ved neste kjøring. Labelen Trenger avklaring fjerner jeg selv når jeg ikke har flere spørsmål. Vil du heller at jeg bare setter i gang med forslagene, fjerner du labelen og flytter oppgaven til Todo.
+Svar her, så leser jeg det ved neste kjøring. Labelen Trenger mer oppfølging fjerner jeg selv når jeg ikke har flere spørsmål. Vil du heller at jeg bare setter i gang med forslagene, fjerner du labelen og flytter oppgaven til Todo.
 ```
 
-**If you understand it,** say how, so the user can correct you before anything is built. If an answer just settled the last open question, also run `update AND-57 --remove-label "Trenger avklaring"`.
+**If you understand it,** say how, so the user can correct you before anything is built. If an answer just settled the last open question, also run `update AND-57 --remove-label "Trenger mer oppfølging"`, or remove `Trenger avklaring` if that is the one the issue carries.
 
 ```markdown
 🤖 **Lest**
@@ -101,7 +106,7 @@ Make small choices yourself and mention them in the comment. If the user moved a
 
 Ask instead when the issue does not say what is wanted, when the answer would change the result in a way that is costly to redo, when it depends on work that is not done, or when it needs something outside the limits in step 6.
 
-To ask, post a comment and add the label, leaving state and any `Mer arbeid` label as they are:
+To ask, post a comment and add the label, leaving state and any `Mer arbeid` label as they are. Use `Trenger mer oppfølging` instead if the issue is in Backlog:
 
 ```bash
 node "$L" update AND-55 --add-label "Trenger avklaring"
@@ -112,7 +117,7 @@ node "$L" update AND-55 --add-label "Trenger avklaring"
 
 <det du trenger å vite, helst med et konkret forslag brukeren kan si ja til>
 
-Fjern labelen Trenger avklaring når du har svart, så plukker jeg opp oppgaven igjen.
+Fjern labelen <Trenger avklaring eller Trenger mer oppfølging> når du har svart, så plukker jeg opp oppgaven igjen.
 ```
 
 Then stop. Use Linear rather than AskUserQuestion, because a prompt in the terminal blocks the loop until someone notices it.

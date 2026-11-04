@@ -1,7 +1,7 @@
 import type { BoxSpec, CompileContext, DiagnosticCode, GraphQuery } from '../spec';
 import { MANY } from '../spec';
 import type { BudgetBox, IncomeBox } from '../types';
-import { incomeEnd, paymentsPerYear, restAfterTransfers } from './pay';
+import { incomeRuns, paymentsPerYear, restAfterTransfers } from './pay';
 
 export type BudgetLine = {
   id: string;
@@ -30,15 +30,15 @@ export function incomePerMonth(budget: BudgetBox, query: GraphQuery): number {
 }
 
 // The part of each payment that continues to savings. It is worked out over the year, so a quarterly income or a
-// bonus saves as much as the same money paid monthly. When one income stops, the others carry the budget alone.
+// bonus saves as much as the same money paid monthly. While one income is not running, the others carry the budget alone.
 export function budgetShare(budget: BudgetBox, context: CompileContext): (day: number) => number {
   const spend = spendPerMonth(budget);
   const incomes = incomesInto(budget, context).map((income) => ({
     perMonth: (restAfterTransfers(income, context) * paymentsPerYear(income)) / 12,
-    end: incomeEnd(income, context) ?? Infinity,
+    runs: incomeRuns(income, context),
   }));
   return (day) => {
-    const inflow = incomes.reduce((sum, income) => (day < income.end ? sum + income.perMonth : sum), 0);
+    const inflow = incomes.reduce((sum, income) => (income.runs(day) ? sum + income.perMonth : sum), 0);
     return inflow > 0 ? Math.max(0, 1 - spend / inflow) : 0;
   };
 }
@@ -47,7 +47,7 @@ export const budgetSpec: BoxSpec<BudgetBox> = {
   defaults: (names) => ({
     name: names.budget,
     lines: [
-      { id: 'housing', name: names.budgetHousing, amount: 20_000 },
+      { id: 'housing', name: names.housing, amount: 20_000 },
       { id: 'living', name: names.budgetLiving, amount: 15_000 },
     ],
   }),

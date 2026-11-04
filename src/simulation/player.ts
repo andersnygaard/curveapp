@@ -2,7 +2,6 @@ import type { Layout, SimulationFrame } from '../engine/simulate';
 import type { Summary } from '../engine/statistics';
 
 const PASS_DURATION_MS = 5000;
-const KEPT_PASSES = 200;
 
 export type Pass = Float64Array[];
 
@@ -12,7 +11,6 @@ export class Player {
   // The years these passes cover, which the text on screen must match while a new run is on its way.
   readonly years: number;
   summary: Summary;
-  history: Pass[] = [];
   current: Pass;
   progress = 0;
   completed = 0;
@@ -27,18 +25,21 @@ export class Player {
     this.current = this.passes[0];
   }
 
+  // All the passes that have come in, also those not played yet.
+  get arrived(): readonly Pass[] {
+    return this.passes;
+  }
+
   receive(frame: SimulationFrame) {
     this.summary = frame.summary;
     this.passes.push(...frame.passes);
   }
 
-  // Returns true when a pass finished, which is when the list of earlier passes changes.
+  // Returns true when a pass finished, which is when the number on screen changes.
   advance(ms: number, reducedMotion: boolean): boolean {
     this.elapsed += ms;
     const finished = this.elapsed >= PASS_DURATION_MS;
     if (finished) {
-      this.history.push(this.current);
-      if (this.history.length > KEPT_PASSES) this.history.shift();
       this.completed++;
       this.current = this.passes[this.completed % this.passes.length];
       this.elapsed -= PASS_DURATION_MS;

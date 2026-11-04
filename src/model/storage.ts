@@ -2,21 +2,22 @@
 import { BOX_TYPES, catalog } from './catalog';
 import { canConnect } from './connections';
 import { createBox, defaultGraph, syncG } from './graph';
-import { fromVersion1, fromVersion2, type Version1 } from './migrations';
+import { fromVersion1, fromVersion2, fromVersion3, fromVersion4, fromVersion5, fromVersion6, type Version1, type Version2 } from './migrations';
 import type { DefaultNames, Graph, PlacedBox, Wire } from './types';
 
 const STORAGE_KEY = 'curve.boxes';
 const BACKUP_KEY = 'curve.boxes.backup';
-export const VERSION = 3;
+export const VERSION = 7;
 
 type Stored = { version?: number; boxes?: PlacedBox[]; wires?: Wire[] };
 
 // A box saved before a field existed gets its default, so nothing has to check for missing fields. Null stays only
-// where it means something, such as no payout age.
+// where it means something, such as no payout age or an income that runs through the whole period.
 function withDefaults(box: PlacedBox, names: DefaultNames): PlacedBox {
   const spec = catalog[box.type];
   const defaults: Record<string, unknown> = spec.defaults(names);
-  const stored = Object.entries(box.data).filter(([key, value]) => value !== null || defaults[key] === null);
+  const mayBeEmpty: string[] = spec.mayBeEmpty ?? [];
+  const stored = Object.entries(box.data).filter(([key, value]) => value !== null || defaults[key] === null || mayBeEmpty.includes(key));
   const data = { ...defaults, ...Object.fromEntries(stored) };
   const position = box.position ?? { x: 0, y: 0 };
   return { ...box, position, data, ...(spec.fixed ? { deletable: false } : {}) } as PlacedBox;
@@ -35,6 +36,14 @@ function placeMeBox(boxes: PlacedBox[], names: DefaultNames): PlacedBox[] {
   return [...boxes, createBox('me', { x: rightmost, y: top - 240 }, names)];
 }
 
+// A file can skip many versions. Each step takes what the one before it left.
+function fromVersion(version: number, graph: Version2): Version2 {
+  const atFour = version < 4 ? fromVersion3(graph) : graph;
+  const atFive = version < 5 ? fromVersion4(atFour) : atFour;
+  const atSix = version < 6 ? fromVersion5(atFive) : atFive;
+  return version < 7 ? fromVersion6(atSix) : atSix;
+}
+
 const isKnown = (box: PlacedBox) => BOX_TYPES.includes(box.type) && typeof box.data === 'object' && box.data !== null;
 
 // Throws on anything it cannot read, so the caller can keep a copy instead of overwriting it.
@@ -42,15 +51,17 @@ export function parseGraph(text: string, names: DefaultNames): Graph {
   const stored = JSON.parse(text) as Stored & Version1;
   if (stored.version === undefined) {
     const { boxes, wires } = fromVersion1(stored);
-    return normalize(boxes.filter(isKnown), wires, names);
+    const updated = fromVersion(1, { boxes: boxes.filter(isKnown), wires });
+    return normalize(updated.boxes, updated.wires, names);
   }
   // Boxes from a newer version, or of a kind this version has never heard of, must not be dropped and written over.
-  if (stored.version !== 2 && stored.version !== VERSION) throw new Error('Unknown version');
+  if (![2, 3, 4, 5, 6, VERSION].includes(stored.version)) throw new Error('Unknown version');
   if (!Array.isArray(stored.boxes) || !Array.isArray(stored.wires)) throw new Error('Unreadable boxes');
   const current = { boxes: stored.boxes, wires: stored.wires };
   const { boxes, wires } = stored.version === 2 ? fromVersion2(current) : current;
   if (!boxes.every(isKnown)) throw new Error('Unknown box type');
-  return normalize(boxes, wires, names);
+  const updated = fromVersion(stored.version, { boxes, wires });
+  return normalize(updated.boxes, updated.wires, names);
 }
 
 export function hasStoredBoxes(): boolean {

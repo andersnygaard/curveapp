@@ -4,11 +4,13 @@ import { accountSpec } from './boxes/account';
 import { budgetSpec } from './boxes/budget';
 import { folketrygdSpec } from './boxes/folketrygd';
 import { gSpec } from './boxes/g';
+import { housingSpec } from './boxes/housing';
 import { incomeSpec } from './boxes/income';
 import { meSpec } from './boxes/me';
 import { otpSpec } from './boxes/otp';
 import { returnSpec } from './boxes/returnBox';
 import { transferSpec } from './boxes/transfer';
+import { wealthTaxSpec } from './boxes/wealthTax';
 import { withdrawalSpec } from './boxes/withdrawal';
 import type { BoxSpec } from './spec';
 import type { Box, BoxOfType, BoxType } from './types';
@@ -22,13 +24,15 @@ export const catalog: { [Type in BoxType]: BoxSpec<BoxOfType<Type>> } = {
   otp: otpSpec,
   folketrygd: folketrygdSpec,
   withdrawal: withdrawalSpec,
+  housing: housingSpec,
+  wealthTax: wealthTaxSpec,
   g: gSpec,
   me: meSpec,
 };
 
 export const BOX_TYPES = Object.keys(catalog) as BoxType[];
 
-// The boxes the toolbar can add, in the order money moves through them.
+// The boxes the toolbar can add, in the order money moves through them, and last those that have no wires.
 export const ADDABLE_TYPES = [
   'income',
   'transfer',
@@ -38,6 +42,8 @@ export const ADDABLE_TYPES = [
   'otp',
   'folketrygd',
   'withdrawal',
+  'housing',
+  'wealthTax',
 ] as const satisfies readonly BoxType[];
 export type AddableType = (typeof ADDABLE_TYPES)[number];
 

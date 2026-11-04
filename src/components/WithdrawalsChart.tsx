@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState, type PointerEvent } from 'react';
 import { DAY_MS } from '../engine/timeline';
 import { MARGIN, roundedStep, timeTicks } from './chartAxis';
 
-const HEIGHT = 288;
+const HEIGHT = 360;
 const LAST_SLOT = 7;
 const TICK_ROOM = 20;
 const TOOLTIP_WIDTH = 216;
@@ -34,6 +34,7 @@ interface Labels {
   surplusGoesOn: string;
   short: string;
   tax: string;
+  wealthTax: string;
 }
 
 interface Props {
@@ -46,6 +47,8 @@ interface Props {
   surplus: ArrayLike<number>;
   short: ArrayLike<number>;
   tax: ArrayLike<number>;
+  // Lies in the same layer as the tax, and has its own row when hovering.
+  wealthTax: ArrayLike<number>;
   yMax: number;
   startMs: number;
   totalDays: number;
@@ -122,9 +125,16 @@ function placeInBand(name: string, upper: number[], lower: number[], edges: numb
   return best && { x: best.x, y: best.y };
 }
 
-// Stacked areas of what pays each year after tax, with a line for the need. What goes beyond the need is greyed out and
-// hatched, and what is missing up to it is hatched in a warm colour, so neither can be taken for ordinary money. The tax
-// lies on top of it all, so the whole height is what has to be found.
+// Drawn with the chart's own pattern, so what the legend shows is what the chart shows, stripes and all.
+const PatternSwatch = ({ pattern }: { pattern: string }) => (
+  <svg className="flows-swatch flows-swatch-pattern" aria-hidden="true">
+    <rect width="100%" height="100%" fill={`url(#${pattern})`} />
+  </svg>
+);
+
+// Stacked areas of what pays each year after tax, with a line for the need. What goes beyond the need is grey with a faint
+// hatching, and what is missing up to it has broad stripes in a warm colour, so neither can be taken for ordinary money or
+// for the other. The tax lies on top of it all, so the whole height is what has to be found.
 export default function WithdrawalsChart({
   title,
   labels,
@@ -134,6 +144,7 @@ export default function WithdrawalsChart({
   surplus,
   short,
   tax,
+  wealthTax,
   yMax,
   startMs,
   totalDays,
@@ -183,7 +194,7 @@ export default function WithdrawalsChart({
   const needs = Array.from(need);
   const aboveNeed = paid.map((value, year) => Math.max(value, needs[year]));
   const belowNeed = paid.map((value, year) => Math.min(value, needs[year]));
-  const withTax = aboveNeed.map((value, year) => value + tax[year]);
+  const withTax = aboveNeed.map((value, year) => value + tax[year] + wealthTax[year]);
   const isVisible = (amount: number) => (amount / yMax) * plotHeight >= VISIBLE_HEIGHT;
   const hasSurplus = aboveNeed.some((value, year) => isVisible(value - needs[year]));
   const hasShort = belowNeed.some((value, year) => isVisible(needs[year] - value));
@@ -255,11 +266,11 @@ export default function WithdrawalsChart({
               ))}
               <pattern id={hatchSurplus} width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
                 <rect className="flows-wash" width="6" height="6" />
-                <line className="flows-hatch" x1="0" x2="0" y1="0" y2="6" />
+                <line className="flows-hatch" x1="1" x2="1" y1="0" y2="6" />
               </pattern>
-              <pattern id={hatchShort} width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(-45)">
-                <rect className="flows-wash-short" width="6" height="6" />
-                <line className="flows-hatch-short" x1="0" x2="0" y1="0" y2="6" />
+              <pattern id={hatchShort} width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(-45)">
+                <rect className="flows-wash-short" width="8" height="8" />
+                <line className="flows-hatch-short" x1="2" x2="2" y1="0" y2="8" />
               </pattern>
             </defs>
             {yTicks.map((value) => (
@@ -328,7 +339,7 @@ export default function WithdrawalsChart({
               </text>
             )}
             {shortPlace && (
-              <text className="flows-name flows-name-warm" x={shortPlace.x} y={shortPlace.y} textAnchor="middle" dominantBaseline="middle">
+              <text className="flows-name flows-name-short" x={shortPlace.x} y={shortPlace.y} textAnchor="middle" dominantBaseline="middle">
                 {labels.short}
               </text>
             )}
@@ -374,7 +385,7 @@ export default function WithdrawalsChart({
             {surplus[hovered] > LISTED_AMOUNT && (
               <>
                 <span className="flows-row">
-                  <span className="flows-swatch flows-swatch-surplus" aria-hidden="true" />
+                  <PatternSwatch pattern={hatchSurplus} />
                   <span className="flows-row-name">{labels.surplus}</span>
                   <span>{money.format(surplus[hovered])}</span>
                 </span>
@@ -383,7 +394,7 @@ export default function WithdrawalsChart({
             )}
             {short[hovered] > LISTED_AMOUNT && (
               <span className="flows-row">
-                <span className="flows-swatch flows-swatch-short" aria-hidden="true" />
+                <PatternSwatch pattern={hatchShort} />
                 <span className="flows-row-name">{labels.short}</span>
                 <span>{money.format(short[hovered])}</span>
               </span>
@@ -395,10 +406,18 @@ export default function WithdrawalsChart({
                 <span>{money.format(tax[hovered])}</span>
               </span>
             )}
+            {wealthTax[hovered] > LISTED_AMOUNT && (
+              <span className="flows-row">
+                <span className="flows-swatch flows-swatch-tax" aria-hidden="true" />
+                <span className="flows-row-name">{labels.wealthTax}</span>
+                <span>{money.format(wealthTax[hovered])}</span>
+              </span>
+            )}
           </div>
         )}
       </div>
-      {inLegend && (
+      {/* Before the width is known no name fits, and there is no chart yet for the swatches to take their patterns from. */}
+      {width > 0 && inLegend && (
         <ul className="flows-legend">
           {unplaced.map((layer) => (
             <li key={layer.slot}>
@@ -408,13 +427,13 @@ export default function WithdrawalsChart({
           ))}
           {hasSurplus && !surplusPlace && (
             <li>
-              <span className="flows-swatch flows-swatch-surplus" aria-hidden="true" />
+              <PatternSwatch pattern={hatchSurplus} />
               {labels.surplus}
             </li>
           )}
           {hasShort && !shortPlace && (
             <li>
-              <span className="flows-swatch flows-swatch-short" aria-hidden="true" />
+              <PatternSwatch pattern={hatchShort} />
               {labels.short}
             </li>
           )}

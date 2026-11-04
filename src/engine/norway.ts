@@ -118,6 +118,103 @@ export function payFolketrygd(stock: number, to: number, divisor: number, fires:
   };
 }
 
+// The rates adopted for 2026, from regjeringen.no and Skatteetaten. They stay fixed, since all amounts are in today's money.
+const PENSION_TAX = {
+  minimumDeductionShare: 0.4,
+  minimumDeductionMost: 75_400,
+  personalAllowance: 114_540,
+  ordinaryIncomeRate: 0.22,
+  socialRate: 0.051,
+  socialFrom: 99_650,
+  socialMostOfWhatIsAbove: 0.25,
+  brackets: [
+    { from: 226_100, rate: 0.017 },
+    { from: 318_300, rate: 0.04 },
+    { from: 725_050, rate: 0.137 },
+    { from: 980_100, rate: 0.168 },
+    { from: 1_467_200, rate: 0.178 },
+  ],
+  credit: 39_100,
+  creditShrinks: [
+    { from: 294_200, rate: 0.191 },
+    { from: 437_100, rate: 0.06 },
+  ],
+};
+
+const above = (amount: number, from: number) => Math.max(0, amount - from);
+
+// Each rate counts only for the part of the amount between where it starts and where the next one takes over.
+const throughBands = (amount: number, bands: { from: number; rate: number }[]) =>
+  bands.reduce((sum, { from, rate }, index) => {
+    const upTo = bands[index + 1]?.from ?? Infinity;
+    return sum + (Math.min(amount, upTo) - Math.min(amount, from)) * rate;
+  }, 0);
+
+// A year's tax on a year's pension and nothing else. The credit comes off all of it, and cannot take the tax below nothing.
+export function taxOnPension(perYear: number, hasCredit: boolean): number {
+  const { minimumDeductionShare, minimumDeductionMost, personalAllowance, ordinaryIncomeRate, socialRate } = PENSION_TAX;
+  const minimumDeduction = Math.min(perYear * minimumDeductionShare, minimumDeductionMost);
+  const ordinary = above(perYear, minimumDeduction + personalAllowance) * ordinaryIncomeRate;
+  const social = Math.min(perYear * socialRate, above(perYear, PENSION_TAX.socialFrom) * PENSION_TAX.socialMostOfWhatIsAbove);
+  const bracket = throughBands(perYear, PENSION_TAX.brackets);
+  const credit = hasCredit ? Math.max(0, PENSION_TAX.credit - throughBands(perYear, PENSION_TAX.creditShrinks)) : 0;
+  return Math.max(0, ordinary + social + bracket - credit);
+}
+
+// The share of this month's pension that goes to tax, for the rules that need to know how much of it is left.
+export const PENSION_TAX_RATE = 'pensionTaxRate';
+
+// What is left of a pension's payments after tax.
+export const keptOf = (label: string) => `kept:${label}`;
+
+export interface TaxedPension {
+  // The flow its payments are recorded under.
+  label: string;
+  to: number;
+  // Where the tax is added up, if anything is to show it.
+  taxShownAs?: string;
+  // Only the old-age pension gives the credit, but all pensions count when the credit shrinks.
+  givesCredit: boolean;
+}
+
+// The tax is per person, so it is worked out on all pensions together, as if this month's pay lasted the whole year. Each
+// pension then pays its part where its money went. Money that has left the model has no tax to take, but it still counts.
+export function taxPensions(pensions: TaxedPension[], yearOf: (day: number) => number, fires: Uint8Array): Rule {
+  return {
+    phase: 'payout',
+    rank: 1,
+    fires,
+    start(world) {
+      const taxRate = world.factor(PENSION_TAX_RATE);
+      const seen = new Float64Array(pensions.length);
+      const paid = new Float64Array(pensions.length);
+      let seenYear = -1;
+      return (day) => {
+        const year = yearOf(day);
+        if (year !== seenYear) seen.fill(0);
+        seenYear = year;
+        let perMonth = 0;
+        let hasCredit = false;
+        pensions.forEach(({ label, givesCredit }, index) => {
+          const thisYear = world.ledger.flows.get(label)?.[year] ?? 0;
+          paid[index] = thisYear - seen[index];
+          seen[index] = thisYear;
+          perMonth += paid[index];
+          hasCredit ||= givesCredit && paid[index] > 0;
+        });
+        const rate = perMonth > 0 ? taxOnPension(perMonth * 12, hasCredit) / (perMonth * 12) : 0;
+        taxRate.value = rate;
+        pensions.forEach(({ label, to, taxShownAs }, index) => {
+          world.tally(keptOf(label), paid[index] * (1 - rate));
+          if (to === OUTSIDE) return;
+          const tax = world.move(to, OUTSIDE, paid[index] * rate, 'tax:pension');
+          if (taxShownAs) world.tally(taxShownAs, tax);
+        });
+      };
+    },
+  };
+}
+
 // The real divisors are set when a birth cohort turns 61. Until then this is an estimate the user can overrule.
 export function estimatedDivisor(age: number): number {
   return Math.max(1, 85 - age);
@@ -205,6 +302,114 @@ export function earnShield({ stock, annualRate, annualInflation, opening, yearEn
         depositsBefore = deposits * dailyLoss;
         inBefore = ledger.in[stock];
         outBefore = ledger.out[stock];
+      };
+    },
+  };
+}
+
+export const WEALTH_DATE = { month: 11, day: 31 };
+
+// What the wealth tax takes, what it costs in tax on gains to pay it, and what the accounts could not pay.
+export const WEALTH_TAX = 'wealth:tax';
+export const WEALTH_TAX_GAIN = 'wealth:gain';
+export const WEALTH_TAX_SHORT = 'wealth:short';
+
+export type HomeKind = 'primary' | 'secondary' | 'cabin';
+
+// The shares and limits for 2026, from Skatteetaten. An account that may hold shares counts as if it does.
+const SHARES_COUNT = 0.8;
+const HOME_COUNTS: Record<HomeKind, { from: number; rate: number }[]> = {
+  primary: [
+    { from: 0, rate: 0.25 },
+    { from: 14_000_000, rate: 0.7 },
+  ],
+  secondary: [{ from: 0, rate: 1 }],
+  // The most a cabin can count. An older one can count for less, so the tax is too high rather than too low.
+  cabin: [{ from: 0, rate: 0.3 }],
+};
+
+export interface Home {
+  kind: HomeKind;
+  value: number;
+  loan: number;
+}
+
+export interface Wealth {
+  // What may hold shares, and what is counted in full.
+  funds: number;
+  cash: number;
+  homes: Home[];
+}
+
+// Loans are shared out by what everything is worth, and the part that falls on shares only comes off with their discount.
+export function taxableWealth({ funds, cash, homes }: Wealth): number {
+  const worth = homes.reduce((sum, { value }) => sum + value, funds + cash);
+  const counted = homes.reduce((sum, { kind, value }) => sum + throughBands(value, HOME_COUNTS[kind]), funds * SHARES_COUNT + cash);
+  const loans = homes.reduce((sum, { loan }) => sum + loan, 0);
+  const deducted = worth > 0 ? loans * (1 - (funds / worth) * (1 - SHARES_COUNT)) : loans;
+  return Math.max(0, counted - deducted);
+}
+
+export interface WealthRates {
+  allowance: number;
+  rate: number;
+  highFrom: number;
+  highRate: number;
+}
+
+export const taxOnWealth = (wealth: number, { allowance, rate, highFrom, highRate }: WealthRates) =>
+  throughBands(wealth, [
+    { from: allowance, rate },
+    { from: Math.max(allowance, highFrom), rate: highRate },
+  ]);
+
+export interface WealthTaxOptions {
+  rates: WealthRates;
+  accounts: { stock: number; holdsFunds: boolean; taxOnGain: number }[];
+  homes: { kind: HomeKind; value: number; loanOn: (day: number) => number }[];
+  fires: Uint8Array;
+}
+
+// Worked out once a year from what each pass holds that day, and taken from the accounts by size, with the same tax on gains
+// as a withdrawal. A home counts but cannot pay, so the accounts can fall short. What is missing stays unpaid and is no debt.
+export function payWealthTax({ rates, accounts, homes, fires }: WealthTaxOptions): Rule {
+  return {
+    phase: 'draw',
+    // After everything else that draws today, so it counts what is really left.
+    rank: Infinity,
+    fires,
+    start(world) {
+      const { balances, ledger } = world;
+      const held = (holdsFunds: boolean) =>
+        accounts.reduce((sum, account) => sum + (account.holdsFunds === holdsFunds ? balances[account.stock] : 0), 0);
+      return (day) => {
+        const tax = taxOnWealth(
+          taxableWealth({
+            funds: held(true),
+            cash: held(false),
+            homes: homes.map(({ kind, value, loanOn }) => ({ kind, value, loan: loanOn(day) })),
+          }),
+          rates,
+        );
+        if (tax <= 0) return;
+        const drawn = accounts.map(({ stock, taxOnGain }) => ({
+          balance: balances[stock],
+          taxFree: ledger.deposits[stock] + ledger.shield[stock],
+          taxOnGain,
+        }));
+        const share = shareLeaving(drawn, tax);
+        let paid = 0;
+        accounts.forEach(({ stock }, index) => {
+          const { balance, taxFree, taxOnGain } = drawn[index];
+          const out = balance * share;
+          const onGain = taxOnDraw(out, taxFree, taxOnGain);
+          paid += world.move(stock, OUTSIDE, out - onGain, WEALTH_TAX);
+          world.move(stock, OUTSIDE, onGain, WEALTH_TAX_GAIN);
+        });
+        const missing = tax - paid;
+        if (missing <= 0.005) return;
+        world.record(WEALTH_TAX_SHORT, missing);
+        for (const { stock } of accounts) ledger.short[stock] += missing;
       };
     },
   };

@@ -1,27 +1,90 @@
-@import '@fontsource-variable/schibsted-grotesk';
+@import '@fontsource-variable/hanken-grotesk';
+@import '@fontsource-variable/newsreader/opsz.css';
 
+/* Snø, the light colours. Checked for colour blindness against --paper. The order of the eight is the same in both sets,
+   so a box keeps its place. src/styles.test.ts checks that the two sets have the same names and that the text can be read. */
 :root {
-  --paper: #edf3f6;
-  --ink: #12263a;
-  --muted: #566878;
-  --line: #c3d2db;
-  --curve: #0b7a75;
-  --warning: #a8560f;
-  --warning-soft: #f6e6d6;
+  color-scheme: light;
+
+  --paper: #f6f8fb;
+  --card: #fff;
+  --ink: #0c1630;
+  --muted: #4d5e78;
+  --line: #d5dde8;
+  --curve: #1d9c74;
+  --warning: #a8430f;
+  --warning-soft: #f6e3d3;
+  --scrim: rgb(12 22 48 / 50%);
+  --shadow: rgb(12 22 48 / 18%);
+  --glow: none;
+  --scale-line: #9aa8bd;
+  --scale-chosen: #0c1630;
+  --scale-chosen-ink: #f6f8fb;
+  --scale-chosen-edge: transparent;
+  --aurora-start: #16a37a;
+  --aurora-end: #5d63e0;
+  --aurora-alpha: 0.42;
+  --aurora-blend: multiply;
+  --aurora-fade-from: 30%;
+  --aurora-fade-to: 58%;
+  --layer-top: 0.3;
+  --layer-bottom: 0.3;
+  --name-halo: transparent;
+  --series-1: #6a68dc;
+  --series-2: #dc9a24;
+  --series-3: #1d9c74;
+  --series-4: #2a78d6;
+  --series-5: #eb6834;
+  --series-6: #a05ec0;
+  --series-7: #008300;
+  --series-8: #e87ba4;
+}
+
+/* Polarnatt, the dark colours. Checked for colour blindness against --paper. */
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  --paper: #0c1630;
+  --card: #16244a;
+  --ink: #eef4fa;
+  --muted: #9fb2c9;
+  --line: #2c3d63;
+  --curve: #37c896;
+  --warning: #f0b45c;
+  --warning-soft: #3a2a17;
+  --scrim: rgb(2 6 18 / 70%);
+  --shadow: rgb(0 0 0 / 45%);
+  --glow: radial-gradient(56rem 26rem at 72% 9rem, #1a3f63 0%, transparent 72%);
+  --scale-line: #3c5078;
+  --scale-chosen: #2b3f68;
+  --scale-chosen-ink: #eef4fa;
+  --scale-chosen-edge: #eef4fa;
+  --aurora-start: #5fe6b5;
+  --aurora-end: #a5b1ff;
+  --aurora-alpha: 0.34;
+  --aurora-blend: screen;
+  --aurora-fade-from: 0%;
+  --aurora-fade-to: 34%;
+  --layer-top: 0.95;
+  --layer-bottom: 0.5;
+  --name-halo: rgb(12 22 48 / 45%);
+  --series-1: #7482f2;
+  --series-2: #b08024;
+  --series-3: #2ba67c;
+  --series-4: #3d8ad6;
+  --series-5: #d9683a;
+  --series-6: #a86ed6;
+  --series-7: #4f9a2c;
+  --series-8: #d6699a;
+}
+
+html {
   --gutter: clamp(1rem, 4vw, 3rem);
-  /* One colour per box in a chart, in this order. Checked for colour blindness against --paper. */
-  --series-1: #2a78d6;
-  --series-2: #eb6834;
-  --series-3: #1baf7a;
-  --series-4: #eda100;
-  --series-5: #e87ba4;
-  --series-6: #008300;
-  --series-7: #6250d6;
-  --series-8: #e34948;
+  --serif: 'Newsreader Variable', Georgia, serif;
 
   background: var(--paper);
   color: var(--ink);
-  font-family: 'Schibsted Grotesk Variable', system-ui, sans-serif;
+  font-family: 'Hanken Grotesk Variable', system-ui, sans-serif;
   line-height: 1.5;
 }
 
@@ -33,6 +96,7 @@ body {
   display: flex;
   flex-direction: column;
   min-height: 100dvh;
+  background: var(--glow) no-repeat;
 }
 
 button {
@@ -61,6 +125,13 @@ button {
   gap: 0.5rem 0.75rem;
 }
 
+/* Tight enough on a phone that the flags, the lever and the help button stay on one row. */
+@media (max-width: 40rem) {
+  .header-actions {
+    column-gap: 0.5rem;
+  }
+}
+
 .file-buttons {
   display: flex;
   gap: 0.375rem;
@@ -87,10 +158,57 @@ button {
 
 .wordmark {
   margin: 0;
-  font-size: 1.75rem;
-  font-weight: 700;
-  letter-spacing: -0.03em;
+  font-family: var(--serif);
+  font-size: 2rem;
+  font-weight: 500;
   line-height: 1;
+}
+
+.lever {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4375rem;
+  padding: 0.25rem 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.lever-word-on {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.lever-track {
+  position: relative;
+  display: block;
+  box-sizing: border-box;
+  width: 2.125rem;
+  height: 1.125rem;
+  border: 1.5px solid var(--ink);
+  border-radius: 0.5625rem;
+}
+
+.lever-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 0.6875rem;
+  height: 0.6875rem;
+  border-radius: 50%;
+  background: var(--ink);
+  transition: transform 150ms ease-out;
+}
+
+.lever[aria-checked='true'] .lever-knob {
+  transform: translateX(1rem);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lever-knob {
+    transition: none;
+  }
 }
 
 .flags {
@@ -153,7 +271,7 @@ button {
   border-radius: 6px;
   box-shadow:
     0 0 0 2px var(--curve),
-    0 0 0 100vmax rgb(18 38 58 / 55%);
+    0 0 0 100vmax var(--scrim);
   pointer-events: none;
   transition-duration: 200ms;
   transition-property: top, left, width, height;
@@ -165,8 +283,8 @@ button {
   width: min(22rem, calc(100vw - 1.5rem));
   padding: 1rem 1.125rem;
   border-radius: 6px;
-  background: #fff;
-  box-shadow: 0 8px 24px rgb(18 38 58 / 25%);
+  background: var(--card);
+  box-shadow: 0 8px 24px var(--shadow);
   color: var(--ink);
   animation: tour-card-in 150ms ease-out;
 }
@@ -196,8 +314,9 @@ button {
 
 .tour-title {
   margin: 0.125rem 0 0.25rem;
-  font-size: 1.125rem;
-  font-weight: 600;
+  font-family: var(--serif);
+  font-size: 1.375rem;
+  font-weight: 500;
 }
 
 .tour-text {
@@ -316,9 +435,45 @@ button {
 }
 
 /* Graphs read best when they are not too wide. It stays to the left, in line with the tabs. */
+.sim,
+.sim-hero-content {
+  max-width: 73rem;
+}
+
 .sim {
-  max-width: 60rem;
   color: var(--ink);
+}
+
+/* Reaches out over the padding of the panel, so the aurora runs from edge to edge. */
+.sim-hero {
+  position: relative;
+  margin: -2rem calc(-1 * var(--gutter)) 0;
+  padding: 2.5rem var(--gutter) clamp(9rem, 28vh, 15rem);
+  color: var(--ink);
+}
+
+.sim-aurora {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  mask-image: linear-gradient(to bottom, transparent var(--aurora-fade-from), #000 var(--aurora-fade-to));
+}
+
+.sim-hero-content {
+  position: relative;
+}
+
+.sim-headline {
+  max-width: 44rem;
+  margin: 0 0 1.5rem;
+  font-family: var(--serif);
+  font-size: clamp(2.25rem, 5.2vw, 4.125rem);
+  font-weight: 400;
+  letter-spacing: -0.015em;
+  line-height: 1.05;
+  overflow-wrap: anywhere;
 }
 
 .sim-toolbar {
@@ -329,13 +484,53 @@ button {
   gap: 0.75rem 1.5rem;
 }
 
+/* Solid, so the lines of the aurora do not run through the text. */
 .horizons {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.25rem;
+  flex: 1 1 28rem;
+  max-width: 45rem;
+  border: 1px solid var(--scale-line);
+  background: var(--paper);
 }
 
-.horizon,
+.horizon {
+  flex: var(--years) 1 0;
+  min-width: 3rem;
+  padding: 0.375rem 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.horizon + .horizon {
+  border-left: 1px solid var(--scale-line);
+}
+
+.horizon:hover {
+  color: var(--ink);
+}
+
+.horizon[aria-pressed='true'] {
+  background: var(--scale-chosen);
+  box-shadow: inset 0 -2px 0 var(--scale-chosen-edge);
+  color: var(--scale-chosen-ink);
+}
+
+/* The shortest part would not hold its text, so on a narrow screen they are all as wide. */
+@media (max-width: 40rem) {
+  .horizons {
+    flex-basis: 100%;
+  }
+
+  .horizon {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+}
+
 .sim-pause,
 .input-add {
   padding: 0.25rem 0.5rem;
@@ -346,43 +541,46 @@ button {
   white-space: nowrap;
 }
 
-.horizon:hover,
 .sim-pause:hover,
 .input-add:hover {
   border-color: var(--ink);
 }
 
-.horizon[aria-pressed='true'],
 .input-add[aria-pressed='true'] {
   border-color: var(--ink);
   background: var(--ink);
   color: var(--paper);
 }
 
+/* Solid like the scale, since it lies over the same lines. */
 .sim-status {
   display: flex;
   align-items: center;
   gap: 0.75rem;
+  padding: 0.125rem 0.125rem 0.125rem 0.5rem;
+  border-radius: 4px;
+  background: var(--paper);
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
 
 .sim-legend {
-  margin: 0.75rem 0 0;
+  max-width: 34rem;
+  margin: 0;
   color: var(--muted);
-  font-size: 0.875rem;
+  font-size: 0.9375rem;
 }
 
 .sim-gate {
   margin: 1rem 0 0;
   padding: 0.5rem 0.75rem;
   border-left: 3px solid var(--curve);
-  background: #fff;
+  background: var(--card);
   font-weight: 500;
 }
 
 .chart {
-  margin-top: 1.5rem;
+  margin-top: 2.5rem;
 }
 
 .chart-heading {
@@ -396,8 +594,10 @@ button {
 
 .chart-name {
   margin: 0;
-  font-size: 1.125rem;
-  font-weight: 600;
+  font-family: var(--serif);
+  font-size: 1.75rem;
+  font-weight: 500;
+  line-height: 1.15;
 }
 
 .chart-headline {
@@ -418,17 +618,7 @@ button {
 }
 
 .withdrawal {
-  --surface: #fff;
-
-  margin-top: 1.5rem;
-  padding: 1rem clamp(0.75rem, 2vw, 1.25rem) 0.75rem;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--surface);
-}
-
-.withdrawal + .sim-legend {
-  margin-top: 1.5rem;
+  margin-top: 2.5rem;
 }
 
 .flows {
@@ -459,7 +649,7 @@ button {
 
 .flows-plot {
   position: relative;
-  height: 18rem;
+  height: 22.5rem;
   margin-top: 0.5rem;
 }
 
@@ -516,12 +706,12 @@ button {
 
 .flows-fade-top {
   stop-color: var(--series);
-  stop-opacity: 0.72;
+  stop-opacity: var(--layer-top);
 }
 
 .flows-fade-bottom {
   stop-color: var(--series);
-  stop-opacity: 0.4;
+  stop-opacity: var(--layer-bottom);
 }
 
 .flows-edge {
@@ -531,16 +721,16 @@ button {
   stroke-width: 1.5;
 }
 
-/* What goes beyond the need keeps a trace of its colours, greyed out and hatched. */
+/* What goes beyond the need is grey and faint. The wash covers the layers under it, since an orange box shining through
+   would look like what is missing. */
 .flows-wash {
-  fill: var(--surface, var(--paper));
-  fill-opacity: 0.72;
+  fill: var(--paper);
 }
 
 .flows-hatch {
   stroke: var(--muted);
   stroke-opacity: 0.55;
-  stroke-width: 1.25;
+  stroke-width: 1;
 }
 
 .flows-surplus {
@@ -548,15 +738,14 @@ button {
   stroke-opacity: 0.35;
 }
 
+/* What is missing is what needs attention, so it has broad, strong stripes that still show in a thin band. */
 .flows-wash-short {
   fill: var(--warning-soft);
-  fill-opacity: 0.8;
 }
 
 .flows-hatch-short {
   stroke: var(--warning);
-  stroke-opacity: 0.6;
-  stroke-width: 1.25;
+  stroke-width: 4;
 }
 
 /* Tax is money that is gone, so it is plain and without a colour of its own. */
@@ -579,7 +768,7 @@ button {
   font-size: 12px;
   font-weight: 600;
   paint-order: stroke;
-  stroke: var(--surface, var(--paper));
+  stroke: var(--paper);
   stroke-linejoin: round;
   stroke-width: 3px;
   pointer-events: none;
@@ -587,25 +776,28 @@ button {
 
 .flows-name {
   fill: var(--ink);
-  font-size: 13px;
-  font-weight: 500;
+  font-size: 14px;
+  font-weight: 600;
+  paint-order: stroke;
   pointer-events: none;
+  stroke: var(--name-halo);
+  stroke-linejoin: round;
+  stroke-width: 3px;
 }
 
 .flows-name-muted,
-.flows-name-warm {
-  paint-order: stroke;
-  stroke: var(--surface, var(--paper));
-  stroke-linejoin: round;
-  stroke-width: 3px;
+.flows-name-short {
+  stroke: var(--paper);
 }
 
 .flows-name-muted {
   fill: var(--muted);
 }
 
-.flows-name-warm {
-  fill: var(--warning);
+/* Its own colour would drown in the stripes. */
+.flows-name-short {
+  fill: var(--ink);
+  stroke-width: 5px;
 }
 
 .flows-swatch {
@@ -616,17 +808,15 @@ button {
   background: var(--series);
 }
 
-.flows-swatch-surplus {
-  background: repeating-linear-gradient(45deg, var(--muted) 0 1px, var(--surface, var(--paper)) 1px 4px);
+/* Wider than the others, since a pattern needs room to be seen. */
+.flows-swatch-pattern {
+  width: 1.25rem;
+  stroke: var(--line);
 }
 
 .flows-swatch-tax {
   background: var(--muted);
   opacity: 0.6;
-}
-
-.flows-swatch-short {
-  background: repeating-linear-gradient(-45deg, var(--warning) 0 1px, var(--warning-soft) 1px 4px);
 }
 
 .flows-tooltip {
@@ -638,8 +828,8 @@ button {
   padding: 0.5rem 0.625rem;
   border: 1px solid var(--line);
   border-radius: 6px;
-  background: #fff;
-  box-shadow: 0 4px 12px rgb(18 38 58 / 12%);
+  background: var(--card);
+  box-shadow: 0 4px 12px var(--shadow);
   color: var(--ink);
   font-size: 0.75rem;
   font-variant-numeric: tabular-nums;
@@ -686,6 +876,16 @@ button {
 
 .input .react-flow {
   --xy-background-color-default: transparent;
+  --xy-attribution-background-color-default: transparent;
+  --xy-connectionline-stroke-default: var(--ink);
+  --xy-controls-box-shadow-default: 0 0 2px 1px var(--shadow);
+  --xy-controls-button-background-color-default: var(--card);
+  --xy-controls-button-background-color-hover-default: var(--line);
+  --xy-controls-button-border-color-default: var(--line);
+  --xy-controls-button-color-default: var(--ink);
+  --xy-controls-button-color-hover-default: var(--ink);
+  --xy-edge-stroke-default: var(--muted);
+  --xy-node-color-default: var(--ink);
 }
 
 .input .wire-money .react-flow__edge-path {
@@ -826,7 +1026,7 @@ button {
   padding: 0.75rem 1rem 1rem;
   border: 1px solid var(--line);
   border-radius: 4px;
-  background: #fff;
+  background: var(--card);
   font-size: 0.875rem;
 }
 
@@ -850,8 +1050,9 @@ button {
 
 .plan-title {
   margin: 0;
-  font-size: 1.125rem;
-  font-weight: 600;
+  font-family: var(--serif);
+  font-size: 1.5rem;
+  font-weight: 500;
 }
 
 .plan-note {
@@ -917,7 +1118,7 @@ button {
     z-index: 50;
     display: block;
     border: 0;
-    background: rgb(18 38 58 / 35%);
+    background: var(--scrim);
   }
 
   .plan-drawer {
@@ -928,7 +1129,7 @@ button {
     width: min(var(--plan-width), 100vw);
     overflow-y: auto;
     padding: 0;
-    background: #fff;
+    background: var(--card);
     animation: plan-slide-in 220ms ease-out;
   }
 
@@ -973,7 +1174,7 @@ button {
   border: 1px solid var(--line);
   border-top: 3px solid var(--box-color);
   border-radius: 4px;
-  background: #fff;
+  background: var(--card);
   color: var(--ink);
   font-size: 0.8125rem;
 }
@@ -987,7 +1188,8 @@ button {
 
 .box-account,
 .box-otp,
-.box-folketrygd {
+.box-folketrygd,
+.box-housing {
   --box-color: var(--ink);
 }
 
@@ -996,7 +1198,8 @@ button {
   color: var(--muted);
 }
 
-.box-folketrygd {
+.box-folketrygd,
+.box-housing {
   border-top-style: dashed;
 }
 
@@ -1006,13 +1209,6 @@ button {
   border-left: 2px solid var(--warning);
   background: var(--warning-soft);
   color: var(--ink);
-}
-
-.box-check {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  color: var(--muted);
 }
 
 .budget-line {
@@ -1074,7 +1270,7 @@ button {
   position: absolute;
   border: 1px solid var(--ink);
   border-radius: 50%;
-  background: #fff;
+  background: var(--card);
   pointer-events: all;
 }
 
@@ -1111,7 +1307,7 @@ button {
   height: 0.875rem;
   box-sizing: border-box;
   border: 2px solid var(--ink);
-  background: #fff;
+  background: var(--card);
 }
 
 .box .react-flow__handle-left,

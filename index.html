@@ -5,6 +5,17 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>Curve</title>
+    <script>
+      // Before the first paint, so a dark page does not flash white. From then on src/theme.ts takes care of it.
+      (function () {
+        var chosen = null;
+        try {
+          chosen = localStorage.getItem('curve.theme');
+        } catch (blocked) {}
+        var browser = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        document.documentElement.dataset.theme = chosen === 'dark' || chosen === 'light' ? chosen : browser;
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

@@ -5,16 +5,20 @@ import Footer from './components/Footer';
 import Header from './components/Header';
 import LanguagePicker from './components/LanguagePicker';
 import Tabs from './components/Tabs';
+import ThemeLever from './components/ThemeLever';
 import Tour from './components/Tour';
 import { LanguageContext, translations, useLanguage, wordsBetween, type Language } from './i18n';
 import InputTab from './input/InputTab';
 import { useGraph, useSimulationInput } from './input/useGraph';
 import { today } from './model/dates';
+import { defaultGraph } from './model/graph';
 import { renameBoxes } from './model/names';
 import { parseGraph, serializeGraph } from './model/storage';
+import type { Graph } from './model/types';
 import PlanPanel from './simulation/PlanPanel';
 import SimulationTab from './simulation/SimulationTab';
 import { usePlanOpen } from './simulation/usePlanOpen';
+import { useTheme } from './theme';
 import { isNewHere, markTourSeen, welcomeSteps } from './welcomeTour';
 
 const tabs = ['simulation', 'input'] as const;
@@ -22,13 +26,14 @@ type Tab = (typeof tabs)[number];
 
 export default function App() {
   const [language, setLanguage] = useLanguage();
+  const [theme, chooseTheme] = useTheme();
   const [activeTab, setActiveTab] = useState<Tab>('simulation');
   const t = translations[language];
   // Asked before the first save below, which would make everyone look like they have been here before.
   const [touring, setTouring] = useState(isNewHere);
   const { graph, setGraph, recovered } = useGraph(t.defaultNames);
   const input = useSimulationInput(graph);
-  const [filesLoaded, setFilesLoaded] = useState(0);
+  const [setupsReplaced, setSetupsReplaced] = useState(0);
   const [unreadableFile, setUnreadableFile] = useState(false);
   const [planOpen, choosePlanOpen] = usePlanOpen();
   // The tour shows the plan when it gets there, and that is not the user's choice, so it is not remembered.
@@ -50,11 +55,20 @@ export default function App() {
       const loaded = parseGraph(text, t.defaultNames);
       setUnreadableFile(false);
       if (!window.confirm(t.confirmLoad)) return;
-      setGraph(loaded);
-      setFilesLoaded(filesLoaded + 1);
+      replaceSetup(loaded);
     } catch {
       setUnreadableFile(true);
     }
+  }
+
+  function reset() {
+    if (window.confirm(t.confirmReset)) replaceSetup(defaultGraph(t.defaultNames));
+  }
+
+  function replaceSetup(next: Graph) {
+    setGraph(next);
+    setUnreadableFile(false);
+    setSetupsReplaced(setupsReplaced + 1);
   }
 
   return (
@@ -64,8 +78,10 @@ export default function App() {
           fileName={() => `curve-${today()}.json`}
           contents={() => serializeGraph(graph)}
           onLoad={loadFile}
+          onReset={reset}
         />
         <LanguagePicker language={language} onChange={changeLanguage} />
+        <ThemeLever theme={theme} onChange={chooseTheme} />
         <button type="button" className="tour-open" aria-label={t.tourOpen} title={t.tourOpen} onClick={() => setTouring(true)}>
           ?
         </button>
@@ -114,7 +130,7 @@ export default function App() {
           >
             {activeTab === 'input' && (
               <ErrorBoundary message={t.somethingWentWrong}>
-                <InputTab key={filesLoaded} graph={graph} setGraph={setGraph} input={input} recovered={recovered && filesLoaded === 0} planOpen={planShown} />
+                <InputTab key={setupsReplaced} graph={graph} setGraph={setGraph} input={input} recovered={recovered && setupsReplaced === 0} planOpen={planShown} />
               </ErrorBoundary>
             )}
           </section>

@@ -19,6 +19,8 @@ const savedSetup = JSON.stringify({
 
 const TOUR_SEEN = 'curve.tourSeen';
 const PLAN_OPEN = 'curve.planOpen';
+const THEME = 'curve.theme';
+const PREFERS_DARK = '(prefers-color-scheme: dark)';
 const WIDE_SCREEN = '(min-width: 60.01rem)';
 const stored = () => localStorage.getItem('curve.boxes') ?? '';
 const fileOf = (text: string) => new File([text], 'setup.json', { type: 'application/json' });
@@ -36,6 +38,7 @@ const meta: Meta<typeof App> = {
     localStorage.setItem('curve.language', 'en');
     localStorage.setItem(TOUR_SEEN, 'true');
     localStorage.removeItem(PLAN_OPEN);
+    localStorage.removeItem(THEME);
     const confirm = spyOn(window, 'confirm').mockReturnValue(true);
     return () => {
       confirm.mockRestore();
@@ -43,12 +46,80 @@ const meta: Meta<typeof App> = {
       localStorage.removeItem('curve.language');
       localStorage.removeItem(TOUR_SEEN);
       localStorage.removeItem(PLAN_OPEN);
+      localStorage.removeItem(THEME);
     };
   },
 };
 export default meta;
 
 type Story = StoryObj<typeof App>;
+
+const root = document.documentElement;
+const browserIsDark = () => window.matchMedia(PREFERS_DARK).matches;
+const theLever = (canvasElement: HTMLElement) => within(canvasElement).getByRole('switch', { name: 'Light colours' });
+
+export const FollowsTheBrowser: Story = {
+  play: async ({ canvasElement }) => {
+    const dark = browserIsDark();
+    await waitFor(() => expect(root.dataset.theme).toBe(dark ? 'dark' : 'light'));
+    await expect(theLever(canvasElement)).toHaveAttribute('aria-checked', String(!dark));
+    await expect(localStorage.getItem(THEME)).toBeNull();
+  },
+};
+
+export const TheLeverOverridesTheBrowserAndIsRemembered: Story = {
+  play: async ({ canvasElement }) => {
+    const other = browserIsDark() ? 'light' : 'dark';
+    await userEvent.click(theLever(canvasElement));
+    await waitFor(() => expect(root.dataset.theme).toBe(other));
+    await expect(localStorage.getItem(THEME)).toBe(other);
+  },
+};
+
+export const ARememberedChoiceComesBeforeTheBrowser: Story = {
+  beforeEach: () => localStorage.setItem(THEME, browserIsDark() ? 'light' : 'dark'),
+  play: async () => {
+    await waitFor(() => expect(root.dataset.theme).toBe(browserIsDark() ? 'light' : 'dark'));
+  },
+};
+
+// The browser can change while the page is open, for example when a laptop goes over to dark colours in the evening.
+const browserScheme = { dark: false, changed: () => {} };
+
+export const FollowsTheBrowserWhenItChangesUntilTheLeverIsUsed: Story = {
+  beforeEach: () => {
+    browserScheme.dark = false;
+    const original = window.matchMedia.bind(window);
+    const media = spyOn(window, 'matchMedia').mockImplementation((query) =>
+      query === PREFERS_DARK
+        ? ({
+            get matches() {
+              return browserScheme.dark;
+            },
+            addEventListener: (_: string, listener: () => void) => {
+              browserScheme.changed = listener;
+            },
+            removeEventListener: () => {},
+          } as unknown as MediaQueryList)
+        : original(query),
+    );
+    return () => media.mockRestore();
+  },
+  play: async ({ canvasElement }) => {
+    await waitFor(() => expect(root.dataset.theme).toBe('light'));
+    browserScheme.dark = true;
+    browserScheme.changed();
+    await waitFor(() => expect(root.dataset.theme).toBe('dark'));
+
+    await userEvent.click(theLever(canvasElement));
+    await waitFor(() => expect(root.dataset.theme).toBe('light'));
+    browserScheme.dark = false;
+    browserScheme.changed();
+    browserScheme.dark = true;
+    browserScheme.changed();
+    await expect(root.dataset.theme).toBe('light');
+  },
+};
 
 const tourTitleIs = (canvasElement: HTMLElement, name: string) =>
   waitFor(() => expect(within(canvasElement).getByRole('dialog')).toHaveAccessibleName(name), { timeout: 5000 });
@@ -240,6 +311,9 @@ export const TheTourWelcomesSomeoneNew: Story = {
     await tourTitleIs(canvasElement, 'Welcome to Curve');
     await litUp('.flags');
     await expect(canvas.getByRole('tab', { name: 'Simulation' })).toHaveAttribute('aria-selected', 'true');
+    // The last step lights up what only shows once the first pass has arrived, and a step without its target is skipped.
+    // On a busy machine the first pass takes longer than the tour waits, so this is about the tour and not about that.
+    await waitFor(() => expect(canvasElement.querySelector('.horizons')).not.toBeNull(), { timeout: 10_000 });
 
     await next();
     await tourTitleIs(canvasElement, 'Build your setup');
@@ -355,6 +429,92 @@ export const SayingNoKeepsTheSetup: Story = {
     await waitFor(() => expect(window.confirm).toHaveBeenCalled());
     await expect(stored()).toBe(before);
     await expect(within(canvasElement).queryByRole('alert')).toBeNull();
+  },
+};
+
+// With the longest words in the header, so a help button alone on a row of its own would show here.
+export const TheHeaderDoesNotSpreadOutOnASmallScreen: Story = {
+  beforeEach: () => localStorage.setItem('curve.language', 'no'),
+  play: async ({ canvasElement }) => {
+    const middleOf = (selector: string) => {
+      const { top, height } = canvasElement.querySelector(selector)!.getBoundingClientRect();
+      return top + height / 2;
+    };
+    await expect(Math.abs(middleOf('.tour-open') - middleOf('.lever'))).toBeLessThan(4);
+    await expect(Math.abs(middleOf('.flags') - middleOf('.lever'))).toBeLessThan(4);
+  },
+};
+
+const resetButton = (canvasElement: HTMLElement) => within(canvasElement).getByRole('button', { name: 'Go back to the default setup' });
+const storedTypes = () => JSON.parse(stored()).boxes.map((box: { type: string }) => box.type).sort();
+
+export const ResetGoesBackToTheDefaultSetup: Story = {
+  beforeEach: () => localStorage.setItem('curve.boxes', savedSetup),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(canvas.getByRole('tab', { name: 'Input' }));
+    await waitFor(() => expect(canvas.getByLabelText('Name')).toHaveValue('From the file'));
+
+    await userEvent.click(resetButton(canvasElement));
+    await expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('default'));
+    // The same boxes as someone new gets, and they are in view.
+    await waitFor(() => expect(canvasElement.querySelectorAll('.box-income')).toHaveLength(1));
+    await expect(canvas.queryByDisplayValue('From the file')).toBeNull();
+    await waitFor(() => expect(storedTypes()).toEqual(['account', 'income', 'me', 'return', 'transfer', 'wealthTax']));
+    await waitFor(() => expect(canvasElement.querySelector('.box-income')).toBeVisible());
+  },
+};
+
+// There is no way back, so nothing happens until the answer is yes.
+export const SayingNoToResetKeepsTheSetup: Story = {
+  beforeEach: () => localStorage.setItem('curve.boxes', savedSetup),
+  play: async ({ canvasElement }) => {
+    spyOn(window, 'confirm').mockReturnValue(false);
+    await waitFor(() => expect(storedTypes()).not.toContain('income'));
+    const before = stored();
+    await userEvent.click(resetButton(canvasElement));
+    await expect(window.confirm).toHaveBeenCalled();
+    await expect(stored()).toBe(before);
+  },
+};
+
+export const ResetLeavesTheRestAlone: Story = {
+  beforeEach: () => {
+    localStorage.setItem('curve.boxes', savedSetup);
+    localStorage.setItem(PLAN_OPEN, 'false');
+    localStorage.setItem(THEME, 'light');
+  },
+  play: async ({ canvasElement }) => {
+    await userEvent.click(resetButton(canvasElement));
+    await waitFor(() => expect(storedTypes()).toContain('income'));
+    await expect(localStorage.getItem(PLAN_OPEN)).toBe('false');
+    await expect(localStorage.getItem(THEME)).toBe('light');
+    await expect(localStorage.getItem('curve.language')).toBe('en');
+    await expect(localStorage.getItem(TOUR_SEEN)).toBe('true');
+    await expect(root.dataset.theme).toBe('light');
+  },
+};
+
+export const ResetUsesTheLanguageOnScreen: Story = {
+  beforeEach: () => {
+    localStorage.setItem('curve.boxes', savedSetup);
+    localStorage.setItem('curve.language', 'no');
+  },
+  play: async ({ canvasElement }) => {
+    await userEvent.click(within(canvasElement).getByRole('button', { name: 'Gå tilbake til standardoppsettet' }));
+    await waitFor(() => expect(stored()).toContain('Lønn'));
+    await expect(stored()).not.toContain('Salary');
+  },
+};
+
+// A message about a file that could not be read says nothing about the setup that is there now.
+export const ResetClearsAnOldMessage: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await choose(canvasElement, 'this is not json');
+    await canvas.findByRole('alert');
+    await userEvent.click(resetButton(canvasElement));
+    await waitFor(() => expect(canvas.queryByRole('alert')).toBeNull());
   },
 };
 

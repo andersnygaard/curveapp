@@ -18,12 +18,13 @@ function balanceText(t: Translations, { name, amount, currency }: PlanBalance): 
 }
 
 function lineText(t: Translations, line: PlanLine): string {
-  const { flow, change, from, to, every } = line;
+  const { flow, change, from, to, every, loan } = line;
   return t.planLines[flow][change]({
     from: from ?? '',
     to: to ?? '',
     amount: paymentText(t, line),
     per: t.planPer[every],
+    loan: loan ? paymentText(t, { ...line, amount: loan, lastAmount: loan }) : '',
   });
 }
 
@@ -38,7 +39,7 @@ function DateSection({ date }: { date: PlanDate }) {
       </h3>
       <ul className="plan-lines">
         {date.lines.map((line, index) => (
-          <li key={index} className={line.flow === 'unmet' && line.change !== 'stops' ? 'plan-short' : undefined}>
+          <li key={index} className={(line.flow === 'unmet' || line.flow === 'wealthTaxShort') && line.change !== 'stops' ? 'plan-short' : undefined}>
             {lineText(t, line)}
           </li>
         ))}
