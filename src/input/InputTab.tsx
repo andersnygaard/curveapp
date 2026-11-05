@@ -7,8 +7,8 @@ import { amountFormat } from '../components/formats';
 import { useTranslations } from '../i18n';
 import { ADDABLE_TYPES, catalog, type AddableType } from '../model/catalog';
 import { diagnose } from '../model/compile';
-import { canConnect, connect } from '../model/connections';
-import { createBox, freeSpot, syncG } from '../model/graph';
+import { canConnect } from '../model/connections';
+import { connected, createBox, freeSpot, settled } from '../model/graph';
 import { queryOf } from '../model/query';
 import type { Graph, SimulationInput } from '../model/types';
 import { CardContext, nodeTypes } from './BoxCards';
@@ -47,7 +47,7 @@ function Canvas({ graph, setGraph, input, recovered, planShown }: Props) {
     const wanted = screenToFlowPosition({ x: left + width / 2 - BOX_WIDTH / 2, y: top + height / 4 });
     const corner = screenToFlowPosition({ x: left + 24, y: top + 24 });
     const box = createBox(type, freeSpot(wanted, graph.boxes), t.defaultNames);
-    setGraph((current) => ({ ...current, boxes: syncG([...current.boxes, box], t.defaultNames, corner) }));
+    setGraph((current) => settled({ ...current, boxes: [...current.boxes, box] }, t.defaultNames, corner));
     // The free spot may be outside the view, and the card is only measured once it is on screen.
     fitSoon();
   }
@@ -86,14 +86,12 @@ function Canvas({ graph, setGraph, input, recovered, planShown }: Props) {
             edges={edges}
             nodeTypes={nodeTypes}
             edgeTypes={edgeTypes}
-            // Later, settled(graph) and connected(graph, request) in model/graph.ts take the place of syncG and connect here.
+            // Every change ends in settled, so the canvas keeps the same invariants as a file that is loaded.
             onNodesChange={(changes) =>
-              setGraph((current) => ({ ...current, boxes: syncG(withBoxChanges(current.boxes, changes), t.defaultNames) }))
+              setGraph((current) => settled({ ...current, boxes: withBoxChanges(current.boxes, changes) }, t.defaultNames))
             }
             onEdgesChange={(changes) => setGraph((current) => ({ ...current, wires: withWireChanges(current.wires, changes) }))}
-            onConnect={(connection) =>
-              setGraph((current) => ({ ...current, wires: connect(current.boxes, current.wires, wireRequestOf(connection)) }))
-            }
+            onConnect={(connection) => setGraph((current) => connected(current, wireRequestOf(connection)))}
             onConnectStart={(_, start) => setConnecting(kindsFrom(graph.boxes, start))}
             onConnectEnd={() => setConnecting(null)}
             isValidConnection={(connection) => canConnect(graph.boxes, wireRequestOf(connection))}

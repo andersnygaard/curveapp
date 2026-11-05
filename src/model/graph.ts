@@ -50,7 +50,7 @@ function placeMeBox(boxes: PlacedBox[], names: DefaultNames): PlacedBox[] {
 }
 
 // What every drawing keeps, however it came to be: the box for yourself is there, G is there exactly while a box reads
-// it, and a wire only joins boxes that can be joined. Loading a file ends here, and so can every change on the canvas.
+// it, and a wire only joins boxes that can be joined. Loading a file ends here, and so does every change on the canvas.
 // How many boxes of a kind there are and how many wires a box takes are left as they are, since compiling reads the first.
 export function settled(graph: Graph, names: DefaultNames, gSpot?: XYPosition): Graph {
   const withMe = graph.boxes.some((box) => box.type === 'me') ? graph.boxes : placeMeBox(graph.boxes, names);

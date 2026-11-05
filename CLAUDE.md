@@ -49,7 +49,7 @@ Wires come in three kinds, and the shape of a dot on a card says which:
 
 A wire is a choice. There is one G and one birth year, so those boxes have no wires. Housing and the wealth tax have no wires either, since they count every box of their kind.
 
-The graph's invariants live in `settled` in `model/graph.ts`: the box for yourself is there, G is there exactly while a box reads it and a wire only joins boxes that can be joined. Every setup read from local storage or a file goes through it. On the canvas, `syncG` and `canConnect` keep the same rules as each change is made. `src/input/flow.ts` is where React Flow's words (nodes, edges, handles) meet the model's (boxes, wires, wire kinds).
+The graph's invariants live in `settled` in `model/graph.ts`: the box for yourself is there, G is there exactly while a box reads it and a wire only joins boxes that can be joined. Every setup read from local storage or a file goes through it, and so does every change on the canvas. `src/input/flow.ts` is where React Flow's words (nodes, edges, handles) meet the model's (boxes, wires, wire kinds).
 
 ## Words
 
