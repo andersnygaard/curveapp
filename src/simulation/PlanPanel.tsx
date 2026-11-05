@@ -1,3 +1,4 @@
+import { moneyFormat } from '../components/formats';
 import { useTranslations, type Translations } from '../i18n';
 import type { Plan, PlanBalance, PlanDate, PlanLine } from '../model/plan';
 import type { SimulationInput } from '../model/types';
@@ -7,7 +8,7 @@ const ROUND_PAYMENTS_TO = 100;
 const BALANCE_DIGITS = 3;
 
 function paymentText(t: Translations, { amount, lastAmount, currency }: PlanLine): string {
-  const format = new Intl.NumberFormat(t.locale, { style: 'currency', currency, maximumFractionDigits: 0 });
+  const format = moneyFormat(t.locale, currency);
   const [low, high] = [amount, lastAmount].map((value) => Math.round(value / ROUND_PAYMENTS_TO) * ROUND_PAYMENTS_TO).sort((a, b) => a - b);
   return low === high ? format.format(low) : format.formatRange(low, high);
 }

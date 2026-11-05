@@ -77,6 +77,7 @@ export interface SimulationInput {
   wires: Wire[];
 }
 
+// The names a new box or a new budget line starts with, in the language on screen.
 export interface DefaultNames {
   income: string;
   transfer: string;
@@ -89,4 +90,5 @@ export interface DefaultNames {
   otp: string;
   folketrygd: string;
   withdrawal: string;
+  budgetLine: string;
 }

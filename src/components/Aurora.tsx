@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
-import type { Player } from '../simulation/player';
-import { currentTheme, onThemeChange } from '../theme';
+import { currentTheme } from '../theme';
+import { followCanvas, prefersReducedMotion, tokensOf, type PlayedPasses, type RegisterDraw } from './canvas';
 import { traceLine } from './chartAxis';
 
 const SHOWN_PASSES = 60;
@@ -9,12 +9,10 @@ const ROOM_BELOW = 8;
 // Above this many times the highest median the lines run off the top, so one lucky pass does not flatten all the others.
 const HEADROOM = 2.2;
 
-const reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-
 interface Props {
-  player: Player;
+  player: PlayedPasses;
   index: number;
-  registerDraw: (draw: () => void) => () => void;
+  registerDraw: RegisterDraw;
 }
 
 // The passes of one account behind the headline. There are no axes and it adds no numbers, so screen readers skip it,
@@ -29,8 +27,7 @@ export default function Aurora({ player, index, registerDraw }: Props) {
     const backdrop = document.createElement('canvas');
     const backdropContext = backdrop.getContext('2d')!;
     const { totalDays, sampleDays } = player.layout;
-    const style = getComputedStyle(canvas);
-    const token = (name: string) => style.getPropertyValue(name).trim();
+    const token = tokensOf(canvas);
     let backdropKey = '';
 
     function draw() {
@@ -71,7 +68,7 @@ export default function Aurora({ player, index, registerDraw }: Props) {
       context.drawImage(backdrop, 0, 0);
       context.setTransform(ratio, 0, 0, ratio, 0, 0);
       context.lineJoin = 'round';
-      if (!reducedMotion()) {
+      if (!prefersReducedMotion()) {
         context.strokeStyle = aurora(context);
         context.lineWidth = 1.5;
         trace(context, player.current[index], player.progress * (sampleDays.length - 1));
@@ -81,16 +78,7 @@ export default function Aurora({ player, index, registerDraw }: Props) {
       trace(context, median);
     }
 
-    draw();
-    const unregister = registerDraw(draw);
-    const stopWatching = onThemeChange(draw);
-    const observer = new ResizeObserver(draw);
-    observer.observe(canvas);
-    return () => {
-      unregister();
-      stopWatching();
-      observer.disconnect();
-    };
+    return followCanvas(canvas, draw, registerDraw);
   }, [player, index, registerDraw]);
 
   return <canvas ref={canvasRef} className="sim-aurora" aria-hidden="true" />;

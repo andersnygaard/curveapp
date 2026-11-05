@@ -17,6 +17,7 @@ const names: DefaultNames = {
   otp: 'OTP',
   folketrygd: 'NP',
   withdrawal: 'Withdrawal',
+  budgetLine: 'New line',
 };
 
 const accountV1 = {

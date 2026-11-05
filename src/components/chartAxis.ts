@@ -2,12 +2,16 @@
 import { DAY_MS, DAYS_PER_YEAR } from '../engine/timeline';
 
 export const MARGIN = { top: 10, right: 10, bottom: 24, left: 64 };
+// A mark on the time axis this close to the right edge ends there instead of being centred, so it is not cut off.
+export const TICK_ROOM = 20;
 
+// A round step between the lines across a chart, with at most four steps to the top. With 2.5 among the steps, a chart
+// that reaches 8 million gets a line every 2.5 million and not only one at 5.
 export function roundedStep(max: number): number {
   const rough = max / 4;
   const magnitude = 10 ** Math.floor(Math.log10(rough));
   const normalized = rough / magnitude;
-  return (normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10) * magnitude;
+  return (normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 2.5 ? 2.5 : normalized <= 5 ? 5 : 10) * magnitude;
 }
 
 // A line may start late and stop early, where the values are NaN. An end between two samples stops partway to the next.

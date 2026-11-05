@@ -1,7 +1,8 @@
 import { useEffect, useRef } from 'react';
-import type { Player } from '../simulation/player';
-import { currentTheme, onThemeChange } from '../theme';
-import { fillBand, MARGIN, roundedStep, timeTicks, traceLine } from './chartAxis';
+import { currentTheme } from '../theme';
+import { followCanvas, tokensOf, type PlayedPasses, type RegisterDraw } from './canvas';
+import { fillBand, MARGIN, roundedStep, TICK_ROOM, timeTicks, traceLine } from './chartAxis';
+import { compactFormat } from './formats';
 
 const DEPOSITS_DASH = [5, 4];
 const SHIELD_DASH = [1, 4];
@@ -10,13 +11,13 @@ const FONT = '12px "Hanken Grotesk Variable", system-ui, sans-serif';
 const BAND_ALPHA = 0.22;
 
 interface Props {
-  player: Player;
+  player: PlayedPasses;
   index: number;
   locale: string;
   birthYear: number | null;
   ageLabel: (age: number) => string;
   description: string;
-  registerDraw: (draw: () => void) => () => void;
+  registerDraw: RegisterDraw;
 }
 
 export default function AccountChart({ player, index, locale, birthYear, ageLabel, description, registerDraw }: Props) {
@@ -26,9 +27,8 @@ export default function AccountChart({ player, index, locale, birthYear, ageLabe
     const canvas = canvasRef.current!;
     const context = canvas.getContext('2d')!;
     const { startMs, totalDays, sampleDays } = player.layout;
-    const compact = new Intl.NumberFormat(locale, { notation: 'compact', maximumFractionDigits: 1 });
-    const style = getComputedStyle(canvas);
-    const color = (name: string) => style.getPropertyValue(name);
+    const compact = compactFormat(locale);
+    const color = tokensOf(canvas);
     let paintedKey = '';
 
     function draw() {
@@ -68,9 +68,9 @@ export default function AccountChart({ player, index, locale, birthYear, ageLabe
         context.fillText(compact.format(value), MARGIN.left - 8, y);
       }
 
-      context.textAlign = 'center';
       context.textBaseline = 'alphabetic';
       for (const { day, tick } of timeTicks(startMs, totalDays, birthYear)) {
+        context.textAlign = toX(day) > width - TICK_ROOM ? 'right' : 'center';
         context.fillText(birthYear === null ? String(tick) : ageLabel(tick), toX(day), height - 6);
       }
 
@@ -104,16 +104,7 @@ export default function AccountChart({ player, index, locale, birthYear, ageLabe
       trace(median);
     }
 
-    draw();
-    const unregister = registerDraw(draw);
-    const stopWatching = onThemeChange(draw);
-    const observer = new ResizeObserver(draw);
-    observer.observe(canvas);
-    return () => {
-      unregister();
-      stopWatching();
-      observer.disconnect();
-    };
+    return followCanvas(canvas, draw, registerDraw);
   }, [player, index, locale, birthYear, ageLabel, registerDraw]);
 
   return <canvas ref={canvasRef} className="chart-canvas" role="img" aria-label={description} />;

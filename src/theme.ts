@@ -1,5 +1,6 @@
 // Dark or light. It follows the browser until the user chooses, and index.html does the same before the first paint.
 import { useEffect, useState } from 'react';
+import { readChoice, remember } from './remembered';
 
 export type Theme = 'dark' | 'light';
 
@@ -7,12 +8,8 @@ const STORAGE_KEY = 'curve.theme';
 const PREFERS_DARK = '(prefers-color-scheme: dark)';
 
 function chosenTheme(): Theme | null {
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    return stored === 'dark' || stored === 'light' ? stored : null;
-  } catch {
-    return null;
-  }
+  const stored = readChoice(STORAGE_KEY);
+  return stored === 'dark' || stored === 'light' ? stored : null;
 }
 
 const browserTheme = (): Theme => (window.matchMedia(PREFERS_DARK).matches ? 'dark' : 'light');
@@ -33,12 +30,9 @@ export function useTheme(): [Theme, (theme: Theme) => void] {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
 
+  // Stored only once it is chosen, so until then it follows the browser.
   function choose(next: Theme) {
-    try {
-      localStorage.setItem(STORAGE_KEY, next);
-    } catch {
-      // Storage can be blocked. The choice then lasts until the page is reloaded.
-    }
+    remember(STORAGE_KEY, next);
     setChosen(next);
   }
 

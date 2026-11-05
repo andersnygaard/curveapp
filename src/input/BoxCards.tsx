@@ -10,7 +10,7 @@ import type { ReturnInterval } from '../model/boxes/returnBox';
 import { drawsFromAccount } from '../model/boxes/transfer';
 import { catalog } from '../model/catalog';
 import type { Diagnostic, GraphQuery } from '../model/spec';
-import type { Box, BoxOfType, BoxType, WireKind } from '../model/types';
+import type { BoxOfType, BoxType, WireKind } from '../model/types';
 
 const INCOME_INTERVALS: IncomeInterval[] = ['weekly', 'monthly', 'quarterly', 'yearly'];
 const RETURN_INTERVALS: ReturnInterval[] = ['daily', 'tradingDays', 'monthly', 'yearly'];
@@ -21,7 +21,8 @@ const OUT_TO: Record<WireKind, Position> = { money: Position.Right, influence: P
 interface CardContextValue {
   query: GraphQuery;
   diagnostics: Diagnostic[];
-  money: (amount: number) => string;
+  // In whole kroner without the currency, as the cards write an amount.
+  amount: (value: number) => string;
 }
 
 export const CardContext = createContext<CardContextValue | null>(null);
@@ -30,13 +31,17 @@ const useCardContext = () => useContext(CardContext)!;
 
 type CardProps<Type extends BoxType> = NodeProps<Node<BoxOfType<Type>['data'] & Record<string, unknown>, Type>>;
 
+// React Flow hands a card its node, and the model asks for a box. They are the same thing, which TypeScript cannot see.
+const boxOf = <Type extends BoxType>({ id, type, data }: { id: string; type: Type; data: BoxOfType<Type>['data'] }) =>
+  ({ id, type, data }) as BoxOfType<Type>;
+
 function useUpdate<Type extends BoxType>(id: string) {
   const { updateNodeData } = useReactFlow();
   return (patch: Partial<BoxOfType<Type>['data']>) => updateNodeData(id, patch);
 }
 
-const intervalOptions = <T extends keyof Translations>(t: Translations, values: T[]) =>
-  values.map((value) => ({ value, label: String(t[value]) }));
+const intervalOptions = <T extends keyof Translations['intervals']>(t: Translations, values: T[]) =>
+  values.map((value) => ({ value, label: t.intervals[value] }));
 
 function Ports({ type }: { type: BoxType }) {
   const { takes, gives } = catalog[type];
@@ -52,20 +57,23 @@ function Ports({ type }: { type: BoxType }) {
   );
 }
 
+// A box without a name of its own, such as the wealth tax, goes by its type.
 function BoxCard({ id, type, name, children }: { id: string; type: BoxType; name?: string; children: ReactNode }) {
   const t = useTranslations();
   const { deleteElements } = useReactFlow();
   const { diagnostics } = useCardContext();
+  // The same rule as on the canvas, where React Flow is told that a fixed box cannot be deleted.
+  const deletable = !catalog[type].fixed;
   return (
     <div className={`box box-${type}`}>
       <Ports type={type} />
       <div className="box-header">
-        <span>{t[type]}</span>
-        {name !== undefined && (
+        <span>{t.boxTypes[type]}</span>
+        {deletable && (
           <button
             type="button"
             className="box-delete nodrag"
-            aria-label={t.deleteBox(name)}
+            aria-label={t.deleteBox(name ?? t.boxTypes[type])}
             onClick={() => deleteElements({ nodes: [{ id }] })}
           >
             ×
@@ -108,7 +116,7 @@ function TransferCard({ id, data, type }: CardProps<'transfer'>) {
   const t = useTranslations();
   const update = useUpdate<'transfer'>(id);
   const { query } = useCardContext();
-  const source = query.into({ id, type, data } as Box, 'money')[0];
+  const source = query.into(boxOf({ id, type, data }), 'money')[0];
   return (
     <BoxCard id={id} type="transfer" name={data.name}>
       <TextField label={t.name} value={data.name} onChange={(name) => update({ name })} />
@@ -125,11 +133,31 @@ function TransferCard({ id, data, type }: CardProps<'transfer'>) {
   );
 }
 
+// A line of the budget is a row in a grid, so its fields are named for screen readers and not labelled on screen.
+function BudgetLineRow({ line, onChange, onDelete }: { line: BudgetLine; onChange: (patch: Partial<BudgetLine>) => void; onDelete: () => void }) {
+  const t = useTranslations();
+  return (
+    <div className="budget-line">
+      <input className="nodrag" aria-label={t.budgetLineName} value={line.name} onChange={(event) => onChange({ name: event.target.value })} />
+      <input
+        className="nodrag"
+        type="number"
+        aria-label={t.budgetLineAmount}
+        value={line.amount || ''}
+        onChange={(event) => onChange({ amount: Number(event.target.value) || 0 })}
+      />
+      <button type="button" className="box-delete nodrag" aria-label={t.deleteBudgetLine(line.name)} onClick={onDelete}>
+        ×
+      </button>
+    </div>
+  );
+}
+
 function BudgetCard({ id, data, type }: CardProps<'budget'>) {
   const t = useTranslations();
   const update = useUpdate<'budget'>(id);
-  const { query, money } = useCardContext();
-  const box = { id, type, data } as BoxOfType<'budget'>;
+  const { query, amount } = useCardContext();
+  const box = boxOf({ id, type, data });
   const spend = spendPerMonth(box);
   const income = incomePerMonth(box, query);
 
@@ -138,45 +166,28 @@ function BudgetCard({ id, data, type }: CardProps<'budget'>) {
   }
   function addLine() {
     const lineId = `line-${Date.now().toString(36)}`;
-    update({ lines: [...data.lines, { id: lineId, name: t.newBudgetLine, amount: 0 }] });
+    update({ lines: [...data.lines, { id: lineId, name: t.defaultNames.budgetLine, amount: 0 }] });
   }
 
   return (
     <BoxCard id={id} type="budget" name={data.name}>
       <TextField label={t.name} value={data.name} onChange={(name) => update({ name })} />
       {data.lines.map((line) => (
-        <div key={line.id} className="budget-line">
-          <input
-            className="nodrag"
-            aria-label={t.budgetLineName}
-            value={line.name}
-            onChange={(event) => setLine(line.id, { name: event.target.value })}
-          />
-          <input
-            className="nodrag"
-            type="number"
-            aria-label={t.budgetLineAmount}
-            value={line.amount || ''}
-            onChange={(event) => setLine(line.id, { amount: Number(event.target.value) || 0 })}
-          />
-          <button
-            type="button"
-            className="box-delete nodrag"
-            aria-label={t.deleteBudgetLine(line.name)}
-            onClick={() => update({ lines: data.lines.filter((other) => other.id !== line.id) })}
-          >
-            ×
-          </button>
-        </div>
+        <BudgetLineRow
+          key={line.id}
+          line={line}
+          onChange={(patch) => setLine(line.id, patch)}
+          onDelete={() => update({ lines: data.lines.filter((other) => other.id !== line.id) })}
+        />
       ))}
       <button type="button" className="input-add budget-add nodrag" onClick={addLine}>
         {t.addBudgetLine}
       </button>
       <Field label={t.budgetSum}>
-        <span className="box-value">{money(spend)}</span>
+        <span className="box-value">{amount(spend)}</span>
       </Field>
       <Field label={t.budgetLeft}>
-        <span className="box-value">{money(Math.max(0, income - spend))}</span>
+        <span className="box-value">{amount(Math.max(0, income - spend))}</span>
       </Field>
     </BoxCard>
   );
@@ -332,7 +343,7 @@ function WealthTaxCard({ id, data }: CardProps<'wealthTax'>) {
   const t = useTranslations();
   const update = useUpdate<'wealthTax'>(id);
   return (
-    <BoxCard id={id} type="wealthTax" name={t.wealthTax}>
+    <BoxCard id={id} type="wealthTax">
       <NumberField label={t.wealthAllowance} value={data.allowance} onChange={(allowance) => update({ allowance })} />
       <NumberField label={t.wealthRate} value={data.rate} onChange={(rate) => update({ rate })} />
       <NumberField label={t.wealthHighFrom} value={data.highFrom} onChange={(highFrom) => update({ highFrom })} />
@@ -374,6 +385,7 @@ function MeCard({ id, data }: CardProps<'me'>) {
   );
 }
 
+// A card for every type of box, so a type without one does not compile.
 export const nodeTypes = {
   income: IncomeCard,
   transfer: TransferCard,
@@ -387,4 +399,4 @@ export const nodeTypes = {
   wealthTax: WealthTaxCard,
   g: GCard,
   me: MeCard,
-};
+} satisfies Record<BoxType, unknown>;

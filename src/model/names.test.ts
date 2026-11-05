@@ -17,6 +17,7 @@ const names: DefaultNames = {
   otp: 'OTP',
   folketrygd: 'Alderspensjon',
   withdrawal: 'Uttak',
+  budgetLine: 'Ny linje',
 };
 const words = [
   ['Lønn', 'Salary'],

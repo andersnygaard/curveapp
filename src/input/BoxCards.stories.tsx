@@ -10,7 +10,7 @@ import type { BoxType, PlacedBox } from '../model/types';
 import { CardContext, nodeTypes } from './BoxCards';
 
 const names = translations.en.defaultNames;
-const money = new Intl.NumberFormat('en-GB', { maximumFractionDigits: 0 });
+const wholeKroner = new Intl.NumberFormat('en-GB', { maximumFractionDigits: 0 });
 
 interface Args {
   type: BoxType;
@@ -33,7 +33,7 @@ function OneCard({ type, from, warning }: Args) {
         }),
       ),
       diagnostics: warning ? [{ boxId: box.id, code: warning }] : [],
-      money: (amount: number) => money.format(amount),
+      amount: (value: number) => wholeKroner.format(value),
     }),
     [box, source, warning],
   );
@@ -146,9 +146,9 @@ export const Budget: Story = {
     const amounts = canvas.getAllByLabelText('Amount a month');
     for (const amount of amounts) await userEvent.clear(amount);
     await userEvent.type(amounts[0], '12000');
-    await expect(canvas.getByText('Total a month').parentElement).toHaveTextContent(money.format(12_000));
+    await expect(canvas.getByText('Total a month').parentElement).toHaveTextContent(wholeKroner.format(12_000));
     // The salary on the default card pays more than that, and what is left can be saved.
-    await expect(canvas.getByText('Left to save a month').parentElement).toHaveTextContent(money.format(50_000 - 12_000));
+    await expect(canvas.getByText('Left to save a month').parentElement).toHaveTextContent(wholeKroner.format(50_000 - 12_000));
 
     await userEvent.click(canvas.getByRole('button', { name: 'Delete New line' }));
     await expect(canvas.getAllByLabelText('Line name')).toHaveLength(before);

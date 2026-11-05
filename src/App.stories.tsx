@@ -2,6 +2,15 @@ import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, fireEvent, spyOn, userEvent, waitFor, within } from 'storybook/test';
 import App from './App';
 
+// What the app keeps in this browser. Someone who comes back is met with what is stored under these names, so they
+// are written out here and never taken from the code.
+const BOXES = 'curve.boxes';
+const BACKUP = 'curve.boxes.backup';
+const LANGUAGE = 'curve.language';
+const THEME = 'curve.theme';
+const PLAN_OPEN = 'curve.planOpen';
+const TOUR_SEEN = 'curve.tourSeen';
+
 // A setup someone saved earlier. The numbers are made up.
 const savedSetup = JSON.stringify({
   version: 2,
@@ -17,12 +26,9 @@ const savedSetup = JSON.stringify({
   wires: [],
 });
 
-const TOUR_SEEN = 'curve.tourSeen';
-const PLAN_OPEN = 'curve.planOpen';
-const THEME = 'curve.theme';
 const PREFERS_DARK = '(prefers-color-scheme: dark)';
 const WIDE_SCREEN = '(min-width: 60.01rem)';
-const stored = () => localStorage.getItem('curve.boxes') ?? '';
+const stored = () => localStorage.getItem(BOXES) ?? '';
 const fileOf = (text: string) => new File([text], 'setup.json', { type: 'application/json' });
 
 async function choose(canvasElement: HTMLElement, text: string) {
@@ -33,17 +39,19 @@ const meta: Meta<typeof App> = {
   title: 'App',
   component: App,
   beforeEach: () => {
-    localStorage.removeItem('curve.boxes');
+    localStorage.removeItem(BOXES);
+    localStorage.removeItem(BACKUP);
     // The stories read the English texts, so someone who has chosen English is the starting point here.
-    localStorage.setItem('curve.language', 'en');
+    localStorage.setItem(LANGUAGE, 'en');
     localStorage.setItem(TOUR_SEEN, 'true');
     localStorage.removeItem(PLAN_OPEN);
     localStorage.removeItem(THEME);
     const confirm = spyOn(window, 'confirm').mockReturnValue(true);
     return () => {
       confirm.mockRestore();
-      localStorage.removeItem('curve.boxes');
-      localStorage.removeItem('curve.language');
+      localStorage.removeItem(BOXES);
+      localStorage.removeItem(BACKUP);
+      localStorage.removeItem(LANGUAGE);
       localStorage.removeItem(TOUR_SEEN);
       localStorage.removeItem(PLAN_OPEN);
       localStorage.removeItem(THEME);
@@ -212,7 +220,7 @@ export const TheTourShowsThePlanWithoutChangingYourChoice: Story = {
 };
 
 export const TheFirstVisitIsInNorwegian: Story = {
-  beforeEach: () => localStorage.removeItem('curve.language'),
+  beforeEach: () => localStorage.removeItem(LANGUAGE),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await expect(canvas.getByRole('tab', { name: 'Simulering' })).toHaveAttribute('aria-selected', 'true');
@@ -220,7 +228,7 @@ export const TheFirstVisitIsInNorwegian: Story = {
     await expect(document.documentElement.lang).toBe('no');
     // The boxes are named when the setup is made, so they are in Norwegian as well.
     await waitFor(() => expect(JSON.parse(stored()).boxes.map((box: { data: { name?: string } }) => box.data.name)).toContain('Lønn'));
-    await waitFor(() => expect(localStorage.getItem('curve.language')).toBe('no'));
+    await waitFor(() => expect(localStorage.getItem(LANGUAGE)).toBe('no'));
   },
 };
 
@@ -234,19 +242,19 @@ export const AChosenLanguageIsKept: Story = {
 };
 
 export const EnglishIsOneClickAway: Story = {
-  beforeEach: () => localStorage.removeItem('curve.language'),
+  beforeEach: () => localStorage.removeItem(LANGUAGE),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await userEvent.click(canvas.getByRole('button', { name: 'English' }));
     await expect(canvas.getByRole('tab', { name: 'Simulation' })).toBeVisible();
-    await waitFor(() => expect(localStorage.getItem('curve.language')).toBe('en'));
+    await waitFor(() => expect(localStorage.getItem(LANGUAGE)).toBe('en'));
   },
 };
 
 const storedNames = () => JSON.parse(stored()).boxes.flatMap((box: { data: { name?: string } }) => box.data.name ?? []);
 
 export const ChangingLanguageRenamesTheBoxes: Story = {
-  beforeEach: () => localStorage.removeItem('curve.language'),
+  beforeEach: () => localStorage.removeItem(LANGUAGE),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await waitFor(() => expect(storedNames()).toEqual(expect.arrayContaining(['Lønn', 'Fond', 'Aksjemarkedet'])));
@@ -260,7 +268,7 @@ export const ChangingLanguageRenamesTheBoxes: Story = {
 
 export const ANameOfYourOwnStaysWhenTheLanguageChanges: Story = {
   beforeEach: () => {
-    localStorage.setItem('curve.boxes', savedSetup);
+    localStorage.setItem(BOXES, savedSetup);
   },
   play: async ({ canvasElement }) => {
     await waitFor(() => expect(storedNames()).toContain('From the file'));
@@ -272,7 +280,7 @@ export const ANameOfYourOwnStaysWhenTheLanguageChanges: Story = {
 
 export const ChoosingTheSameLanguageChangesNothing: Story = {
   beforeEach: () => {
-    localStorage.setItem('curve.boxes', JSON.stringify({ ...JSON.parse(savedSetup), boxes: [{ ...JSON.parse(savedSetup).boxes[0], data: { ...JSON.parse(savedSetup).boxes[0].data, name: 'fund' } }] }));
+    localStorage.setItem(BOXES, JSON.stringify({ ...JSON.parse(savedSetup), boxes: [{ ...JSON.parse(savedSetup).boxes[0], data: { ...JSON.parse(savedSetup).boxes[0].data, name: 'fund' } }] }));
   },
   play: async ({ canvasElement }) => {
     await waitFor(() => expect(storedNames()).toContain('fund'));
@@ -283,7 +291,7 @@ export const ChoosingTheSameLanguageChangesNothing: Story = {
 
 export const TheTourWelcomesInNorwegianOnAFirstVisit: Story = {
   beforeEach: () => {
-    localStorage.removeItem('curve.language');
+    localStorage.removeItem(LANGUAGE);
     localStorage.removeItem(TOUR_SEEN);
   },
   play: async ({ canvasElement }) => {
@@ -359,7 +367,7 @@ export const TheTourCanChangeLanguageOnTheWay: Story = {
 export const TheTourLeavesThoseWithBoxesAlone: Story = {
   beforeEach: () => {
     localStorage.removeItem(TOUR_SEEN);
-    localStorage.setItem('curve.boxes', savedSetup);
+    localStorage.setItem(BOXES, savedSetup);
   },
   play: async ({ canvasElement }) => {
     await waitFor(() => expect(JSON.parse(stored()).boxes[0].id).toBe('loaded'));
@@ -420,6 +428,23 @@ export const LoadingReplacesTheSetup: Story = {
   },
 };
 
+// A number field keeps what is typed in it, so the same file loaded again needs a fresh canvas to show its own numbers.
+export const LoadingAgainShowsTheNumbersInTheFile: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const startAmount = () => canvas.getByLabelText('Start amount');
+    await userEvent.click(canvas.getByRole('tab', { name: 'Input' }));
+    await choose(canvasElement, savedSetup);
+    await waitFor(() => expect(startAmount()).toHaveValue(123_000));
+
+    await userEvent.clear(startAmount());
+    await userEvent.type(startAmount(), '5000');
+    await expect(startAmount()).toHaveValue(5_000);
+    await choose(canvasElement, savedSetup);
+    await waitFor(() => expect(startAmount()).toHaveValue(123_000));
+  },
+};
+
 export const SayingNoKeepsTheSetup: Story = {
   play: async ({ canvasElement }) => {
     spyOn(window, 'confirm').mockReturnValue(false);
@@ -434,7 +459,7 @@ export const SayingNoKeepsTheSetup: Story = {
 
 // With the longest words in the header, so a help button alone on a row of its own would show here.
 export const TheHeaderDoesNotSpreadOutOnASmallScreen: Story = {
-  beforeEach: () => localStorage.setItem('curve.language', 'no'),
+  beforeEach: () => localStorage.setItem(LANGUAGE, 'no'),
   play: async ({ canvasElement }) => {
     const middleOf = (selector: string) => {
       const { top, height } = canvasElement.querySelector(selector)!.getBoundingClientRect();
@@ -449,7 +474,7 @@ const resetButton = (canvasElement: HTMLElement) => within(canvasElement).getByR
 const storedTypes = () => JSON.parse(stored()).boxes.map((box: { type: string }) => box.type).sort();
 
 export const ResetGoesBackToTheDefaultSetup: Story = {
-  beforeEach: () => localStorage.setItem('curve.boxes', savedSetup),
+  beforeEach: () => localStorage.setItem(BOXES, savedSetup),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await userEvent.click(canvas.getByRole('tab', { name: 'Input' }));
@@ -467,7 +492,7 @@ export const ResetGoesBackToTheDefaultSetup: Story = {
 
 // There is no way back, so nothing happens until the answer is yes.
 export const SayingNoToResetKeepsTheSetup: Story = {
-  beforeEach: () => localStorage.setItem('curve.boxes', savedSetup),
+  beforeEach: () => localStorage.setItem(BOXES, savedSetup),
   play: async ({ canvasElement }) => {
     spyOn(window, 'confirm').mockReturnValue(false);
     await waitFor(() => expect(storedTypes()).not.toContain('income'));
@@ -480,7 +505,7 @@ export const SayingNoToResetKeepsTheSetup: Story = {
 
 export const ResetLeavesTheRestAlone: Story = {
   beforeEach: () => {
-    localStorage.setItem('curve.boxes', savedSetup);
+    localStorage.setItem(BOXES, savedSetup);
     localStorage.setItem(PLAN_OPEN, 'false');
     localStorage.setItem(THEME, 'light');
   },
@@ -489,7 +514,7 @@ export const ResetLeavesTheRestAlone: Story = {
     await waitFor(() => expect(storedTypes()).toContain('income'));
     await expect(localStorage.getItem(PLAN_OPEN)).toBe('false');
     await expect(localStorage.getItem(THEME)).toBe('light');
-    await expect(localStorage.getItem('curve.language')).toBe('en');
+    await expect(localStorage.getItem(LANGUAGE)).toBe('en');
     await expect(localStorage.getItem(TOUR_SEEN)).toBe('true');
     await expect(root.dataset.theme).toBe('light');
   },
@@ -497,13 +522,28 @@ export const ResetLeavesTheRestAlone: Story = {
 
 export const ResetUsesTheLanguageOnScreen: Story = {
   beforeEach: () => {
-    localStorage.setItem('curve.boxes', savedSetup);
-    localStorage.setItem('curve.language', 'no');
+    localStorage.setItem(BOXES, savedSetup);
+    localStorage.setItem(LANGUAGE, 'no');
   },
   play: async ({ canvasElement }) => {
     await userEvent.click(within(canvasElement).getByRole('button', { name: 'Gå tilbake til standardoppsettet' }));
     await waitFor(() => expect(stored()).toContain('Lønn'));
     await expect(stored()).not.toContain('Salary');
+  },
+};
+
+// The notice is about the boxes that could not be read, so it goes with them. What was stored is still kept.
+export const TheRecoveredNoticeGoesWithTheOldSetup: Story = {
+  beforeEach: () => localStorage.setItem(BOXES, 'not json {'),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const notice = 'Your saved boxes could not be read, so this is the default setup. A copy is kept in this browser.';
+    await userEvent.click(canvas.getByRole('tab', { name: 'Input' }));
+    await expect(canvas.getByText(notice)).toBeVisible();
+
+    await userEvent.click(resetButton(canvasElement));
+    await waitFor(() => expect(canvas.queryByText(notice)).toBeNull());
+    await expect(localStorage.getItem(BACKUP)).toBe('not json {');
   },
 };
 

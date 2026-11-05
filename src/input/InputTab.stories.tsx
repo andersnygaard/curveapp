@@ -5,7 +5,7 @@ import { translations } from '../i18n';
 import { createBox, defaultGraph, syncG } from '../model/graph';
 import type { Graph } from '../model/types';
 import InputTab from './InputTab';
-import { useSimulationInput } from './useGraph';
+import { useSimulationInput } from './useSetup';
 
 const names = translations.en.defaultNames;
 
@@ -16,10 +16,10 @@ function withPension(): Graph {
   return { ...graph, boxes: syncG([...graph.boxes, otp, withdrawal], names) };
 }
 
-function Tab({ recovered = false, planOpen = false }: { recovered?: boolean; planOpen?: boolean }) {
+function Tab({ recovered = false, planShown = false }: { recovered?: boolean; planShown?: boolean }) {
   const [graph, setGraph] = useState(withPension);
   const input = useSimulationInput(graph);
-  return <InputTab graph={graph} setGraph={setGraph} input={input} recovered={recovered} planOpen={planOpen} />;
+  return <InputTab graph={graph} setGraph={setGraph} input={input} recovered={recovered} planShown={planShown} />;
 }
 
 const meta: Meta<typeof Tab> = {

@@ -45,6 +45,7 @@ const names: DefaultNames = {
   otp: 'h',
   folketrygd: 'i',
   withdrawal: 'j',
+  budgetLine: 'k',
 };
 
 describe('boxes stored by the old app', () => {

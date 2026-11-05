@@ -1,11 +1,14 @@
+import { useCallback, useEffect, useState } from 'react';
 import type { TourStep } from './components/Tour';
 import type { Translations } from './i18n';
 import { hasStoredBoxes } from './model/storage';
+import { remember } from './remembered';
 
 const SEEN_KEY = 'curve.tourSeen';
 
-// Someone with boxes stored has been here before. With storage blocked it would show on every visit, so it does not.
-export function isNewHere(): boolean {
+// Someone with boxes stored has been here before. With storage blocked it would show on every visit, so it does not,
+// and that is why this reads storage itself: readChoice cannot tell blocked from empty.
+function isNewHere(): boolean {
   try {
     return !hasStoredBoxes() && localStorage.getItem(SEEN_KEY) === null;
   } catch {
@@ -13,12 +16,25 @@ export function isNewHere(): boolean {
   }
 }
 
-export function markTourSeen() {
-  try {
-    localStorage.setItem(SEEN_KEY, 'true');
-  } catch {
-    // Storage can be blocked, and then there is nothing to remember it in.
-  }
+function markTourSeen() {
+  remember(SEEN_KEY, 'true');
+}
+
+// The tour starts by itself for someone new, and the help button starts it again.
+export function useWelcomeTour() {
+  // Asked before the boxes are first saved, which would make everyone look like they have been here before.
+  const [touring, setTouring] = useState(isNewHere);
+  const [planShown, showPlan] = useState(false);
+
+  useEffect(() => {
+    if (touring) markTourSeen();
+  }, [touring]);
+
+  const start = useCallback(() => setTouring(true), []);
+  // The same function on every render, so the tour's key listener is not taken down and put up again each time.
+  const close = useCallback(() => setTouring(false), []);
+
+  return { touring, start, close, planShown, showPlan };
 }
 
 // What lights up is decided here, so the tour itself knows nothing of tabs or boxes.

@@ -115,6 +115,17 @@ export const ToAge95: Story = {
   },
 };
 
+// Right after a new period is chosen, the passes for the old one are still on screen, and the text says what they show.
+export const TheTextFollowsThePassesOnScreen: Story = {
+  args: { birthYear: 1990, yearsToLastAge: 55, horizon: 'lastAge' },
+  play: async ({ canvasElement }) => {
+    await expect(within(canvasElement).getByRole('button', { name: 'To age 95' })).toHaveAttribute('aria-pressed', 'true');
+    await expect(canvasElement.querySelector('.sim-headline')).toHaveTextContent(
+      `Fund. Median after 30 years: ${money.format(growing(100_000, 0.04)(30))}.`,
+    );
+  },
+};
+
 export const AllNotes: Story = {
   args: {
     player: fixedPlayer({
