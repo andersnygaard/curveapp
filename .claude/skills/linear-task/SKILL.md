@@ -1,6 +1,6 @@
 ---
 name: linear-task
-description: Work the Curve board in Linear. Finds the next issue in project Curve with status Todo or label "Mer arbeid", does the work in this repo, documents it with a Playwright screenshot and a comment on the issue, then moves it to In Review. Also reads Backlog issues and asks follow-up questions where a task needs more shaping. Use when the user runs /linear-task, usually through /loop 5m /linear-task, or asks to check the Curve board or take the next task ("sjekk boardet", "ta neste oppgave"). For one-off lookups or edits in Linear, use the linear skill instead.
+description: Work the Curve board in Linear. Finds the next issue in project Curve with status Todo or label "Mer arbeid", does the work in this repo, documents it with a Playwright screenshot and a comment on the issue, then moves it to In Review. Splits issues labelled "Nye oppgaver" into new issues. Also reads Backlog issues and asks follow-up questions where a task needs more shaping. Use when the user runs /linear-task, usually through /loop 5m /linear-task, or asks to check the Curve board or take the next task ("sjekk boardet", "ta neste oppgave"). For one-off lookups or edits in Linear, use the linear skill instead.
 context: fork
 agent: general-purpose
 background: false
@@ -12,7 +12,7 @@ Do the work on at most one issue per run, then stop. The user usually runs this 
 
 Every run is its own subagent (`context: fork`) and must stay that way, so a long loop does not fill the main session until it fails with "prompt too long". The main session only gets the closing lines from "Finish the run". `background: false` makes it wait for those lines, so the next firing cannot start on top of a run that is still working.
 
-Running this skill is the user's go-ahead for these writes on the issues it handles: state changes on the issue being worked on, the labels named here, comments and uploaded screenshots. Anything else in Linear (new issues, edited descriptions, deletes) still follows the ask-first rule in the `linear` skill.
+Running this skill is the user's go-ahead for these writes on the issues it handles: state changes on the issue being worked on, the labels named here, comments and uploaded screenshots. On an issue labelled `Nye oppgaver` it also covers creating the issues it lists, however many there are, and setting the original to Done. Anything else in Linear (other new issues, edited descriptions, deletes) still follows the ask-first rule in the `linear` skill.
 
 ## Setup
 
@@ -41,13 +41,13 @@ node "$L" gql @"$T/poll.graphql"
 node "$L" gql @"$T/backlog.graphql" | node "$T/backlog.mjs"
 ```
 
-The first returns what to work on: issues in Curve (P-AND-3) that are in Todo (new tasks) or carry `Mer arbeid` (the user wants more done), in any state except Canceled and Duplicate. A `Mer arbeid` label on a Backlog or Done issue counts. Issues labelled `Trenger mer oppfølging` or `Trenger avklaring` are left out because they wait for the user.
+The first returns what to work on: issues in Curve (P-AND-3) that are in Todo (new tasks) or carry `Mer arbeid` (the user wants more done), in any state except Canceled and Duplicate. A `Mer arbeid` label on a Backlog or Done issue counts. So does `Nye oppgaver` (the user has sketched several tasks in one issue), except on a Done issue, which has already been split. Issues labelled `Trenger mer oppfølging` or `Trenger avklaring` are left out because they wait for the user.
 
 The second sorts the Backlog for step 2: `review` is new or has changed since it was last read, `waiting` has an open question, and `read` is read and ready for Todo.
 
 If nothing is on the work list and `review` is empty, reply with one line and stop, with no comments or other writes. Name what is waiting so the user can see why nothing happened, and leave out empty parts: `Ingen oppgaver å jobbe med. Venter på svar: AND-56. Lest og klar for Todo: AND-57, AND-58.` This is the normal case in a loop and should stay cheap and quiet.
 
-Otherwise do step 2 if `review` has issues, then steps 3 to 8 if there is work. For the work, take the issue with the lowest number, whether it is new or carries `Mer arbeid`, because the user wants tasks done in order where possible. The one exception is priority 1 (urgent), which goes first. A lower-numbered issue still in Backlog or waiting on one of those labels does not hold the others back. If the chosen issue actually needs that work, step 4 covers it.
+Otherwise do step 2 if `review` has issues, then steps 3 to 8 if there is work. For the work, take the issue with the lowest number, whichever way it got on the list, because the user wants tasks done in order where possible. The one exception is priority 1 (urgent), which goes first. A lower-numbered issue still in Backlog or waiting on one of those labels does not hold the others back. If the chosen issue actually needs that work, step 4 covers it.
 
 ## 2. Read the Backlog with curiosity
 
@@ -55,7 +55,7 @@ Backlog is where the user is still thinking, and this is the chance to shape a t
 
 Take the first three in `review`. The rest come next run, so the questions arrive in portions the user can answer. Read each with `node "$L" issue AND-57`, fetch any images as in step 3, and look at the code and the other issues on the board. Picture building it. Where would you have to guess? Does it overlap with, conflict with or depend on another issue? Is it really several tasks? Is there a term or a domain rule you would be guessing at?
 
-Only read here: no code changes, no state changes and no edits to the issue. Moving to Todo is the user's signal to start, so leave that to them, and suggest a split in the comment rather than creating issues.
+Only read here: no code changes, no state changes and no edits to the issue. Moving to Todo is the user's signal to start, so leave that to them, and suggest a split in the comment rather than creating issues. The user asks for the split by adding the label `Nye oppgaver`.
 
 Then post one comment. Both outcomes get one, because the 🤖 comment is how the next run knows the issue has been read.
 
@@ -121,6 +121,8 @@ Fjern labelen <Trenger avklaring eller Trenger mer oppfølging> når du har svar
 ```
 
 Then stop. Use Linear rather than AskUserQuestion, because a prompt in the terminal blocks the loop until someone notices it.
+
+If the issue is clear, carries `Nye oppgaver` and is not Done, go to "Split a sketch into new issues" instead of steps 5 to 8.
 
 ## 5. Pick it up
 
@@ -192,6 +194,43 @@ node "$L" update AND-55 --state "In Review"
 
 Report what happened: if something is unverified or unfinished, say so here rather than leaving the user to discover it.
 
+## Split a sketch into new issues
+
+The label `Nye oppgaver` means the user has sketched several tasks in one issue, as in AND-101. Nothing is built here, so there are no code changes, test runs or screenshots.
+
+Follow what the issue says about how to split it. Otherwise make one issue per point, in Curve and in Backlog, with the point's heading as title and the text under it as description, in the user's own words. End each description with `Fra AND-101.`
+
+An earlier run may have stopped halfway, so list what exists first and skip titles that are already there:
+
+```bash
+node "$L" issues --project P-AND-3 --limit 100
+```
+
+Write each create call exactly as below, one Bash call per issue, with `$HOME` as written and no `L=` or loop around it. The allow rule in `.claude/settings.local.json` matches the command text, so any other form goes to the auto mode check, which has stopped these calls before.
+
+```bash
+node "$HOME/.claude/skills/linear/linear.mjs" create --project P-AND-3 --state Backlog --title "<tittel>" --description @"C:/.../scratchpad/AND-101-1.md"
+```
+
+When every point has an issue, post the comment, then set the original to Done. It keeps the label as a record, and the poll skips it from then on.
+
+```bash
+node "$L" update AND-101 --state Done --remove-label "Mer arbeid"
+```
+
+```markdown
+🤖 **Delt opp**
+
+<kort om hvordan du delte skissen og valg du tok>
+
+- AND-110 <tittel>
+- AND-111 <tittel>
+```
+
+Do not start on the new issues. They come up in `review` and are read as usual in step 2, in portions of three.
+
+If a call fails or is stopped, do not work around it. Post a 🤖 **Stoppet** comment as in the next section, name the issues that exist so far, add `Trenger avklaring` and leave the state as it is.
+
 ## If the work cannot be finished or verified
 
 When the app will not start, a problem cannot be solved or you cannot show that the work works, do not move the issue to In Review and do not retry on the next run. Post what you did and where it stopped, with a screenshot if there is one, add `Trenger avklaring` and leave the issue in In Progress.
@@ -211,4 +250,5 @@ End with a line for each issue you touched, with its key and outcome, plus how m
 ```
 AND-57 og AND-58: spurte om oppfølging. AND-59: lest, klar for Todo.
 AND-55 -> In Review: hovedbildet med header, faner og footer er på plass. https://linear.app/... (1 oppgave venter)
+AND-101 -> Done: delt opp i 14 nye oppgaver i Backlog. https://linear.app/...
 ```

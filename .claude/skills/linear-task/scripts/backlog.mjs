@@ -3,7 +3,7 @@
 //   review   new, or the user commented or edited the description after the last 🤖 comment
 //   waiting  has an open question (Trenger mer oppfølging or Trenger avklaring) and nothing new from the user
 //   read     already read and ready for Todo, with nothing new
-// Issues with "Mer arbeid" and no open question are left out: poll.graphql picks those up as work.
+// Issues with "Mer arbeid" or "Nye oppgaver" and no open question are left out: poll.graphql picks those up as work.
 // The 🤖 comments are the only record of what has been read, so there is no state file to keep in step.
 
 import { readFileSync } from 'node:fs';
@@ -21,7 +21,7 @@ const { nodes } = JSON.parse(readFileSync(0, 'utf8')).issues;
 for (const issue of nodes.sort((a, b) => a.number - b.number)) {
   const labels = issue.labels.nodes.map(l => l.name);
   const open = labels.includes('Trenger mer oppfølging') || labels.includes('Trenger avklaring');
-  if (labels.includes('Mer arbeid') && !open) continue;
+  if ((labels.includes('Mer arbeid') || labels.includes('Nye oppgaver')) && !open) continue;
   if (hasNews(issue)) out.review.push(`${issue.identifier} ${issue.title}`);
   else (open ? out.waiting : out.read).push(issue.identifier);
 }

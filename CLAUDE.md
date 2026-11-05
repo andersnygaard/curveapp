@@ -100,6 +100,7 @@ Do not change `engine.ts` or `connections.ts` for this. If a new rule is needed,
 
 ## Linear
 
-- An issue that has been carried out goes to In Review, however the work was started. Leave Done to the user.
+- An issue that has been carried out goes to In Review, however the work was started. Leave Done to the user, apart from the `Nye oppgaver` rule below.
+- An issue labelled `Nye oppgaver` is a sketch of several tasks. Create them as new issues and set the original to Done.
 - A Backlog issue that needs follow-up gets the label `Trenger mer oppfølging`.
 - In a loop, `linear-task` runs in a subagent, so a long loop does not fill the main session.

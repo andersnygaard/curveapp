@@ -1,5 +1,5 @@
-# Work waiting on the Curve board: status Todo, or label "Mer arbeid" in any state that is not
-# cancelled. Issues labelled "Trenger mer oppfølging" or "Trenger avklaring" wait for an answer from
+# Work waiting on the Curve board: status Todo, label "Mer arbeid" in any state that is not
+# cancelled, or label "Nye oppgaver" on an issue that is not yet Done. Issues labelled "Trenger mer oppfølging" or "Trenger avklaring" wait for an answer from
 # the user and are left out.
 {
   issues(
@@ -11,6 +11,7 @@
       or: [
         { state: { name: { eq: "Todo" } } }
         { labels: { some: { name: { eq: "Mer arbeid" } } } }
+        { and: [{ labels: { some: { name: { eq: "Nye oppgaver" } } } }, { state: { type: { neq: "completed" } } }] }
       ]
     }
   ) {
