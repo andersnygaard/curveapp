@@ -40,7 +40,7 @@ export function toInput(scenario: LegacyScenario): SimulationInput {
     boxes.push({
       id,
       type: 'income',
-      data: { name, amount, interval, pensionBasis: amount * PAYMENTS[interval], stopsAtRetirement: false },
+      data: { name, amount, interval, pensionBasis: amount * PAYMENTS[interval], fromAge: null, toAge: null },
     });
   }
 

@@ -24,6 +24,16 @@ const preview: Preview = {
         ],
       },
     },
+    theme: {
+      description: 'Colours',
+      toolbar: {
+        icon: 'contrast',
+        items: [
+          { value: 'dark', title: 'Polarnatt' },
+          { value: 'light', title: 'Snø' },
+        ],
+      },
+    },
   },
   // The test run says which size to use. See vitest.config.ts.
   initialGlobals: { language: 'en', viewport: { value: import.meta.env.VITE_STORY_VIEWPORT, isRotated: false } },
@@ -38,11 +48,16 @@ const preview: Preview = {
     },
   },
   decorators: [
-    (Story, { globals }) => (
-      <LanguageContext.Provider value={globals.language as Language}>
-        <Story />
-      </LanguageContext.Provider>
-    ),
+    (Story, { globals }) => {
+      // The browser's setting unless the toolbar says otherwise, and the test run sets the browser. See vitest.config.ts.
+      const browser = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      document.documentElement.dataset.theme = globals.theme ?? browser;
+      return (
+        <LanguageContext.Provider value={globals.language as Language}>
+          <Story />
+        </LanguageContext.Provider>
+      );
+    },
   ],
   // Every story has to fit the screen, at every size it is tested at.
   afterEach: async ({ canvasElement }) => {

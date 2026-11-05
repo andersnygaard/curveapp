@@ -1,26 +1,49 @@
 // The written plan: what starts, changes and stops on which date, read from one pass without random shocks.
-// It reads what the engine moved, so it cannot say anything else than what the simulation does.
+// It reads what the engine moved, so it cannot say anything else than what the simulation does. The flows it knows are
+// named where the engine makes them, in rules.ts and norway.ts, and stretches.ts says where a run of payments changes.
 import { OUTSIDE, runPass, type Recorded, type Stock } from '../engine/engine';
+import { OTP_DEPOSIT, TAX_ON_PENSION, WEALTH_TAX, WEALTH_TAX_GAIN, WEALTH_TAX_SHORT } from '../engine/norway';
 import { noNoise } from '../engine/random';
+import { payoutSource, SURPLUS, TAX_ON_GAIN, UNMET } from '../engine/rules';
 import type { Timeline } from '../engine/timeline';
+import { ageOn } from './ages';
+import { loanOn, valueOf } from './boxes/housing';
+import { incomeOfLabel } from './boxes/pay';
 import { compile, DEFAULT_YEARS, hasStocks, LAST_AGE, yearsToAge } from './compile';
 import { assumptionsOf } from './query';
+import { amountsOf, dayAfter, intervalOf, stretchesOf, type Payment, type PaymentInterval } from './stretches';
 import type { Box, SimulationInput } from './types';
 
-export type PlanFlow = 'opening' | 'deposit' | 'pensionDeposit' | 'pension' | 'withdrawal' | 'tax' | 'surplus' | 'move' | 'unmet';
+export type PlanFlow =
+  | 'opening'
+  | 'housing'
+  | 'deposit'
+  | 'pensionDeposit'
+  | 'pension'
+  | 'withdrawal'
+  | 'tax'
+  | 'wealthTax'
+  | 'wealthTaxGain'
+  | 'surplus'
+  | 'move'
+  | 'unmet'
+  | 'wealthTaxShort';
 export type PlanChange = 'starts' | 'changes' | 'stops';
-export type PlanInterval = 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'yearly' | 'once';
+export type PlanInterval = PaymentInterval;
 
 export interface PlanLine {
   flow: PlanFlow;
   change: PlanChange;
   from: string | null;
   to: string | null;
-  // The first and last payment until the next change. They differ when an amount follows G.
+  // The first and last payment until the next change. They differ when an amount follows G. For a flow that has one line
+  // for as long as it lasts, they are the lowest and the highest.
   amount: number;
   lastAmount: number;
   every: PlanInterval;
   currency: string;
+  // What a home has left to pay on the day its line is about.
+  loan?: number;
 }
 
 export interface PlanBalance {
@@ -44,34 +67,17 @@ export interface Plan {
   toAge: number | null;
 }
 
-const PAYOUT_PREFIX = 'payout:';
-const TAX_PREFIX = 'tax:';
-const FLOW_ORDER: PlanFlow[] = ['opening', 'deposit', 'pensionDeposit', 'pension', 'withdrawal', 'tax', 'surplus', 'move', 'unmet'];
-const MONTHS_BETWEEN: Partial<Record<PlanInterval, number>> = { monthly: 1, quarterly: 3, yearly: 12 };
+const FLOW_ORDER: PlanFlow[] = ['opening', 'housing', 'deposit', 'pensionDeposit', 'pension', 'withdrawal', 'tax', 'wealthTax', 'wealthTaxGain', 'surplus', 'move', 'unmet', 'wealthTaxShort'];
+// Worked out from what the accounts hold, so the amount moves every year without anything having been decided. That is one
+// line for as long as it lasts, from all the accounts together, and not a new one each year.
+const ONE_LINE_FLOWS = new Map<string, PlanFlow>([
+  [WEALTH_TAX, 'wealthTax'],
+  [WEALTH_TAX_GAIN, 'wealthTaxGain'],
+  [WEALTH_TAX_SHORT, 'wealthTaxShort'],
+]);
 
 // Smaller payments are what is left of an account or a rounding, not something to plan for.
 const SMALLEST_PAYMENT = 100;
-// An amount that follows G rises a little every year. That is one line in the plan, not a new one each year.
-const CHANGE_SHARE = 0.1;
-const SMALLEST_CHANGE = 500;
-const LONGEST_GAP_DAYS = 400;
-// Trading days have a weekend between them.
-const SHORTEST_ALLOWED_GAP_DAYS = 5;
-
-interface Payment {
-  day: number;
-  amount: number;
-}
-
-// Payments that belong together: the same flow at about the same amount with no pause.
-interface Stretch {
-  firstDay: number;
-  lastDay: number;
-  gap: number | null;
-  first: number;
-  last: number;
-  payments: number;
-}
 
 interface FlowRun {
   flow: PlanFlow;
@@ -82,97 +88,32 @@ interface FlowRun {
 }
 
 function flowOf({ from, to, label }: Recorded, stocks: Stock[]): PlanFlow | null {
-  if (label.startsWith(TAX_PREFIX)) return 'tax';
+  if (label === TAX_ON_GAIN || label === TAX_ON_PENSION) return 'tax';
   if (from !== OUTSIDE && stocks[from].hidden) {
-    if (label === 'unmet') return 'unmet';
+    if (label === UNMET) return 'unmet';
     // What the pension covers is already said by the lines for each pension.
-    return label === 'surplus' ? 'surplus' : null;
+    return label === SURPLUS ? 'surplus' : null;
   }
-  if (label.startsWith(PAYOUT_PREFIX)) return 'pension';
-  if (from === OUTSIDE) return label === 'otp:deposit' ? 'pensionDeposit' : 'deposit';
+  if (payoutSource(label) !== null) return 'pension';
+  if (from === OUTSIDE) return label === OTP_DEPOSIT ? 'pensionDeposit' : 'deposit';
   return to === OUTSIDE ? 'withdrawal' : 'move';
 }
 
 function sourceOf(flow: PlanFlow, { from, label }: Recorded, stocks: Stock[], boxes: Box[]): string | null {
-  if (flow === 'pension') return stocks.find((stock) => stock.id === label.slice(PAYOUT_PREFIX.length))?.name ?? null;
-  if (flow === 'deposit') {
-    const income = boxes.find((box) => box.type === 'income' && label.startsWith(`${box.id}:`));
-    return income?.type === 'income' ? income.data.name : null;
-  }
+  if (flow === 'pension') return stocks.find((stock) => stock.id === payoutSource(label))?.name ?? null;
+  if (flow === 'deposit') return incomeOfLabel(label, boxes)?.data.name ?? null;
   return from === OUTSIDE ? null : stocks[from].name;
 }
 
-const allowedGap = (gap: number | null) => (gap === null ? LONGEST_GAP_DAYS : Math.max(gap * 1.5, SHORTEST_ALLOWED_GAP_DAYS));
-
-function continues(stretch: Stretch, { day, amount }: Payment): boolean {
-  if (day - stretch.lastDay > allowedGap(stretch.gap)) return false;
-  return Math.abs(amount - stretch.last) <= Math.max(stretch.last * CHANGE_SHARE, SMALLEST_CHANGE);
-}
-
-// The month an account runs out holds what was left in it, and the month a shortfall starts holds a part of it.
-// A single payment like that belongs to the stretch next to it, and does not get a date of its own.
-function withoutLonePayments(stretches: Stretch[]): Stretch[] {
-  const kept: Stretch[] = [];
-  stretches.forEach((stretch, index) => {
-    const next = stretches[index + 1];
-    const previous = kept.at(-1);
-    if (stretch.payments === 1 && next && next.firstDay - stretch.lastDay <= allowedGap(next.gap)) {
-      next.gap ??= next.firstDay - stretch.lastDay;
-      next.firstDay = stretch.firstDay;
-      next.payments++;
-    } else if (stretch.payments === 1 && previous && stretch.lastDay - previous.lastDay <= allowedGap(previous.gap)) {
-      previous.gap ??= stretch.lastDay - previous.lastDay;
-      previous.lastDay = stretch.lastDay;
-      previous.payments++;
-    } else {
-      kept.push(stretch);
-    }
-  });
-  return kept;
-}
-
-function stretchesOf(payments: Payment[]): Stretch[] {
-  const stretches: Stretch[] = [];
-  for (const payment of payments) {
-    const { day, amount } = payment;
-    const current = stretches.at(-1);
-    if (current && continues(current, payment)) {
-      current.gap ??= day - current.lastDay;
-      current.lastDay = day;
-      current.last = amount;
-      current.payments++;
-    } else {
-      stretches.push({ firstDay: day, lastDay: day, gap: null, first: amount, last: amount, payments: 1 });
-    }
-  }
-  return withoutLonePayments(stretches);
-}
-
-function intervalOf(gap: number | null): PlanInterval {
-  if (gap === null) return 'once';
-  if (gap <= SHORTEST_ALLOWED_GAP_DAYS) return 'daily';
-  if (gap <= 10) return 'weekly';
-  if (gap <= 45) return 'monthly';
-  return gap <= 120 ? 'quarterly' : 'yearly';
-}
-
-// The day the next payment would have come.
-function dayAfter({ lastDay, gap }: Stretch, every: PlanInterval, timeline: Timeline): number {
-  const months = MONTHS_BETWEEN[every];
-  if (months === undefined) return lastDay + (gap ?? 1);
-  const date = timeline.dateOf(lastDay);
-  return timeline.dayOfMs(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + months, date.getUTCDate()));
-}
-
 function linesOfRun({ flow, from, to, currency, payments }: FlowRun, timeline: Timeline): [number, PlanLine][] {
-  const stretches = stretchesOf(payments.filter(({ amount }) => amount >= SMALLEST_PAYMENT));
+  const oneLine = [...ONE_LINE_FLOWS.values()].includes(flow);
+  const planned = payments.filter(({ amount }) => amount >= SMALLEST_PAYMENT);
+  const stretches = stretchesOf(planned, oneLine);
   let previousEnd = -Infinity;
   return stretches.flatMap((stretch, index): [number, PlanLine][] => {
     const every = intervalOf(stretch.gap);
     const end = dayAfter(stretch, every, timeline);
-    // The last payment of a pension empties it and is a little different. Only a real rise is worth a range.
-    const rises = Math.abs(stretch.last - stretch.first) > stretch.first * CHANGE_SHARE;
-    const line = { flow, from, to, amount: stretch.first, lastAmount: rises ? stretch.last : stretch.first, every, currency };
+    const line = { flow, from, to, ...amountsOf(stretch, planned, oneLine), every, currency };
     const change: PlanChange = stretch.firstDay <= previousEnd ? 'changes' : 'starts';
     const lines: [number, PlanLine][] = [[stretch.firstDay, { ...line, change }]];
     const next = stretches[index + 1];
@@ -188,6 +129,25 @@ function openingLine({ name, opening, currency }: Stock): PlanLine {
   return { flow: 'opening', change: 'starts', from: null, to: name, amount: opening, lastAmount: opening, every: 'once', currency };
 }
 
+// A home moves no money, so the engine has nothing to say about it and its lines come from the box. Without a date the
+// day is not a number, so nothing below holds: the loan stays as it is and has no day it is paid off.
+function housingLines(boxes: Box[], timeline: Timeline): [number, PlanLine][] {
+  return boxes.flatMap((box): [number, PlanLine][] => {
+    if (box.type !== 'housing') return [];
+    const value = valueOf(box);
+    const paidOffDay = timeline.dayOf(box.data.paidOff);
+    const loan = loanOn(box, 0, paidOffDay);
+    const line = { flow: 'housing', from: box.data.name, to: null, amount: value, lastAmount: value, every: 'once', currency: 'NOK' } as const;
+    const lines: [number, PlanLine][] = [];
+    if (value > 0 || loan > 0) lines.push([0, { ...line, change: 'starts', loan }]);
+    if (loan > 0 && paidOffDay <= timeline.days) lines.push([paidOffDay, { ...line, change: 'stops' }]);
+    return lines;
+  });
+}
+
+// A line that only says what is already there. The accounts it names hold just that, so there are no balances to add.
+const saysWhatIsThere = ({ flow, change }: PlanLine) => change === 'starts' && (flow === 'opening' || flow === 'housing');
+
 export function planOf(input: SimulationInput): Plan {
   const yearsToLastAge = yearsToAge(input, LAST_AGE);
   const years = yearsToLastAge || DEFAULT_YEARS;
@@ -198,16 +158,17 @@ export function planOf(input: SimulationInput): Plan {
   const { stocks, timeline, charted } = model;
   const runs = new Map<string, FlowRun>();
   runPass(model, noNoise, (recorded) => {
-    const flow = flowOf(recorded, stocks);
-    if (!flow) return;
     const { day, from, to, amount, label } = recorded;
-    const key = `${flow}|${from}|${to}|${label}`;
+    const oneLine = ONE_LINE_FLOWS.get(label);
+    const flow = oneLine ?? flowOf(recorded, stocks);
+    if (!flow) return;
+    const key = oneLine ?? `${flow}|${from}|${to}|${label}`;
     let run = runs.get(key);
     if (!run) {
       const owner = stocks[from] ?? stocks[to];
       run = {
         flow,
-        from: sourceOf(flow, recorded, stocks, input.boxes),
+        from: oneLine ? null : sourceOf(flow, recorded, stocks, input.boxes),
         to: to === OUTSIDE ? null : stocks[to].name,
         currency: owner?.currency ?? 'NOK',
         payments: [],
@@ -223,7 +184,8 @@ export function planOf(input: SimulationInput): Plan {
     .filter((stock) => !stock.hidden && stock.opening > 0 && stock.openDay <= timeline.days)
     .map((stock): [number, PlanLine] => [stock.openDay, openingLine(stock)]);
   const linesByDay = new Map<number, PlanLine[]>();
-  for (const [day, line] of [...openings, ...[...runs.values()].flatMap((run) => linesOfRun(run, timeline))]) {
+  const flows = [...runs.values()].flatMap((run) => linesOfRun(run, timeline));
+  for (const [day, line] of [...openings, ...housingLines(input.boxes, timeline), ...flows]) {
     linesByDay.set(day, [...(linesByDay.get(day) ?? []), line]);
   }
 
@@ -232,7 +194,7 @@ export function planOf(input: SimulationInput): Plan {
   const { birthYear } = assumptionsOf(input.boxes);
   const dates = days.map((day, sample): PlanDate => {
     const lines = linesByDay.get(day)!;
-    const balances = lines.every((line) => line.flow === 'opening')
+    const balances = lines.every(saysWhatIsThere)
       ? []
       : charted.flatMap((stock, chart): PlanBalance[] => {
           const { name, unit, currency } = stocks[stock];
@@ -242,7 +204,7 @@ export function planOf(input: SimulationInput): Plan {
     return {
       day,
       dateMs: timeline.dateOf(day).getTime(),
-      age: birthYear === null ? null : timeline.dateOf(day).getUTCFullYear() - birthYear,
+      age: birthYear === null ? null : ageOn(timeline.dateOf(day), birthYear),
       lines: [...lines].sort((a, b) => FLOW_ORDER.indexOf(a.flow) - FLOW_ORDER.indexOf(b.flow)),
       balances,
     };

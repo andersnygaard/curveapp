@@ -1,60 +1,54 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import ErrorBoundary from './components/ErrorBoundary';
 import FileButtons from './components/FileButtons';
 import Footer from './components/Footer';
 import Header from './components/Header';
 import LanguagePicker from './components/LanguagePicker';
-import Tabs from './components/Tabs';
+import Tabs, { TabPanel } from './components/Tabs';
+import ThemeLever from './components/ThemeLever';
 import Tour from './components/Tour';
 import { LanguageContext, translations, useLanguage, wordsBetween, type Language } from './i18n';
 import InputTab from './input/InputTab';
-import { useGraph, useSimulationInput } from './input/useGraph';
+import { useSetup } from './input/useSetup';
 import { today } from './model/dates';
-import { renameBoxes } from './model/names';
-import { parseGraph, serializeGraph } from './model/storage';
+import { serializeGraph } from './model/storage';
+import type { SimulationInput } from './model/types';
 import PlanPanel from './simulation/PlanPanel';
 import SimulationTab from './simulation/SimulationTab';
 import { usePlanOpen } from './simulation/usePlanOpen';
-import { isNewHere, markTourSeen, welcomeSteps } from './welcomeTour';
+import { useTheme } from './theme';
+import { useWelcomeTour, welcomeSteps } from './welcomeTour';
 
 const tabs = ['simulation', 'input'] as const;
 type Tab = (typeof tabs)[number];
 
+// Beside the page on a wide screen. On a narrow one it lies over the page, and a tap beside it closes it.
+function PlanDrawer({ input, onClose }: { input: SimulationInput; onClose: () => void }) {
+  return (
+    <>
+      <button type="button" className="plan-backdrop" aria-hidden="true" tabIndex={-1} onClick={onClose} />
+      <div className="plan-drawer">
+        <PlanPanel input={input} onClose={onClose} />
+      </div>
+    </>
+  );
+}
+
 export default function App() {
   const [language, setLanguage] = useLanguage();
+  const [theme, chooseTheme] = useTheme();
   const [activeTab, setActiveTab] = useState<Tab>('simulation');
   const t = translations[language];
-  // Asked before the first save below, which would make everyone look like they have been here before.
-  const [touring, setTouring] = useState(isNewHere);
-  const { graph, setGraph, recovered } = useGraph(t.defaultNames);
-  const input = useSimulationInput(graph);
-  const [filesLoaded, setFilesLoaded] = useState(0);
-  const [unreadableFile, setUnreadableFile] = useState(false);
+  // Before the setup, which saves the boxes, so the tour can tell who is new.
+  const tour = useWelcomeTour();
+  const setup = useSetup(t);
   const [planOpen, choosePlanOpen] = usePlanOpen();
   // The tour shows the plan when it gets there, and that is not the user's choice, so it is not remembered.
-  const [planInTour, setPlanInTour] = useState(false);
-  const planShown = touring ? planInTour : planOpen;
-
-  useEffect(() => {
-    if (touring) markTourSeen();
-  }, [touring]);
+  const planShown = tour.touring ? tour.planShown : planOpen;
 
   function changeLanguage(next: Language) {
     setLanguage(next);
-    setGraph((current) => renameBoxes(current, wordsBetween(language, next)));
-  }
-
-  // It only asks once it knows that the file can be read, and nothing changes until the answer is yes.
-  function loadFile(text: string) {
-    try {
-      const loaded = parseGraph(text, t.defaultNames);
-      setUnreadableFile(false);
-      if (!window.confirm(t.confirmLoad)) return;
-      setGraph(loaded);
-      setFilesLoaded(filesLoaded + 1);
-    } catch {
-      setUnreadableFile(true);
-    }
+    setup.rename(wordsBetween(language, next));
   }
 
   return (
@@ -62,11 +56,13 @@ export default function App() {
       <Header>
         <FileButtons
           fileName={() => `curve-${today()}.json`}
-          contents={() => serializeGraph(graph)}
-          onLoad={loadFile}
+          contents={() => serializeGraph(setup.graph)}
+          onLoad={setup.load}
+          onReset={setup.reset}
         />
         <LanguagePicker language={language} onChange={changeLanguage} />
-        <button type="button" className="tour-open" aria-label={t.tourOpen} title={t.tourOpen} onClick={() => setTouring(true)}>
+        <ThemeLever theme={theme} onChange={chooseTheme} />
+        <button type="button" className="icon-button icon-button-round tour-open" aria-label={t.tourOpen} title={t.tourOpen} onClick={tour.start}>
           ?
         </button>
       </Header>
@@ -74,19 +70,19 @@ export default function App() {
       <div className="tab-row">
         <Tabs
           label={t.sections}
-          tabs={tabs.map((id) => ({ id, label: t[id] }))}
+          tabs={tabs.map((id) => ({ id, label: t.tabs[id] }))}
           active={activeTab}
           onChange={setActiveTab}
         />
-        <button type="button" className="input-add" aria-pressed={planShown} onClick={() => choosePlanOpen(!planShown)}>
+        <button type="button" className="button plan-toggle" aria-pressed={planShown} onClick={() => choosePlanOpen(!planShown)}>
           {t.plan}
         </button>
       </div>
 
-      {unreadableFile && (
-        <p className="file-error" role="alert">
+      {setup.unreadableFile && (
+        <p className="callout file-error" role="alert">
           {t.fileUnreadable}
-          <button type="button" aria-label={t.close} onClick={() => setUnreadableFile(false)}>
+          <button type="button" className="icon-button icon-button-small" aria-label={t.close} onClick={setup.dismissUnreadable}>
             ×
           </button>
         </p>
@@ -94,44 +90,32 @@ export default function App() {
 
       <div className={planShown ? 'workspace workspace-with-plan' : 'workspace'}>
         <main className="main">
-          <section
-            id="panel-simulation"
-            className="panel"
-            role="tabpanel"
-            aria-labelledby="tab-simulation"
-            hidden={activeTab !== 'simulation'}
-          >
+          <TabPanel id="simulation" active={activeTab === 'simulation'}>
             <ErrorBoundary message={t.somethingWentWrong}>
-              <SimulationTab active={activeTab === 'simulation'} input={input} />
+              <SimulationTab active={activeTab === 'simulation'} input={setup.input} />
             </ErrorBoundary>
-          </section>
-          <section
-            id="panel-input"
-            className="panel"
-            role="tabpanel"
-            aria-labelledby="tab-input"
-            hidden={activeTab !== 'input'}
-          >
+          </TabPanel>
+          <TabPanel id="input" active={activeTab === 'input'}>
             {activeTab === 'input' && (
               <ErrorBoundary message={t.somethingWentWrong}>
-                <InputTab key={filesLoaded} graph={graph} setGraph={setGraph} input={input} recovered={recovered && filesLoaded === 0} planOpen={planShown} />
+                <InputTab
+                  key={setup.generation}
+                  graph={setup.graph}
+                  setGraph={setup.setGraph}
+                  input={setup.input}
+                  recovered={setup.recovered}
+                  planShown={planShown}
+                />
               </ErrorBoundary>
             )}
-          </section>
+          </TabPanel>
         </main>
-        {planShown && (
-          <>
-            <button type="button" className="plan-backdrop" aria-hidden="true" tabIndex={-1} onClick={() => choosePlanOpen(false)} />
-            <div className="plan-drawer">
-              <PlanPanel input={input} onClose={() => choosePlanOpen(false)} />
-            </div>
-          </>
-        )}
+        {planShown && <PlanDrawer input={setup.input} onClose={() => choosePlanOpen(false)} />}
       </div>
 
       <Footer />
 
-      {touring && <Tour steps={welcomeSteps(t, setActiveTab, setPlanInTour)} onClose={() => setTouring(false)} />}
+      {tour.touring && <Tour steps={welcomeSteps(t, setActiveTab, tour.showPlan)} onClose={tour.close} />}
     </LanguageContext.Provider>
   );
 }

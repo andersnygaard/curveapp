@@ -8,6 +8,12 @@ export function today(): string {
   return toIsoDate(new Date());
 }
 
+export function yearsFromToday(years: number): string {
+  const date = new Date();
+  date.setFullYear(date.getFullYear() + years);
+  return toIsoDate(date);
+}
+
 export function validDate(date: string): string {
   return Number.isNaN(Date.parse(date)) ? today() : date;
 }

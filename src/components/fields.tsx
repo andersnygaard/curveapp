@@ -3,7 +3,7 @@ import { useState, type ReactNode } from 'react';
 
 export function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <label className="box-field">
+    <label className="field">
       <span>{label}</span>
       {children}
     </label>
@@ -77,14 +77,5 @@ export function SelectField<T extends string>({ label, value, onChange, options 
         ))}
       </select>
     </Field>
-  );
-}
-
-export function CheckField({ label, value, onChange }: ValueProps<boolean>) {
-  return (
-    <label className="box-check">
-      <input className="nodrag" type="checkbox" checked={value} onChange={(event) => onChange(event.target.checked)} />
-      <span>{label}</span>
-    </label>
   );
 }

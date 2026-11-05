@@ -1,5 +1,6 @@
 import type { BoxSpec } from '../spec';
 import type { GBox } from '../types';
+import { shareOf } from '../values';
 
 // G from 1 May 2026.
 const CURRENT_G = 136_549;
@@ -16,8 +17,8 @@ export type GData = {
 export function assumedG({ g, gGrowth, standardDeviation }: GData) {
   return {
     value: Math.max(1, g),
-    growth: Math.max(-50, gGrowth) / 100,
-    volatility: Math.max(0, standardDeviation) / 100,
+    growth: shareOf(gGrowth, -50),
+    volatility: shareOf(standardDeviation),
   };
 }
 

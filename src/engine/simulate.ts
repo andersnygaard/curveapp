@@ -3,6 +3,7 @@ import { runPass, type Model, type PassResult } from './engine';
 import { passNoise, seededRandom } from './random';
 import { summarize, type Summary } from './statistics';
 
+// Passes come in pairs, so every stage must be an even number.
 export const PASS_STAGES = [200, 1000, 2000];
 const PLAYBACK_PASSES = 500;
 
@@ -39,8 +40,8 @@ export function* simulate(model: Model, stages: number[] = PASS_STAGES): Generat
 
   for (const target of targets) {
     const fresh: PassResult[] = [];
-    while (results.length + fresh.length < target) {
-      const pair = (results.length + fresh.length) / 2;
+    // A pass depends only on its pair, so the first 200 of 2 000 passes are the 200 shown first.
+    for (let pair = results.length / 2; pair < target / 2; pair++) {
       fresh.push(runPass(model, passNoise(pair, 1)), runPass(model, passNoise(pair, -1)));
     }
     results.push(...fresh);

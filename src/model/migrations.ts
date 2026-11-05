@@ -1,11 +1,22 @@
-// How boxes saved by earlier versions of the app are brought up to date. Stored data must keep working, and a
-// stored pension figure must never change meaning without the user knowing. Unknown fields are left out by
-// the next step, which fills in defaults.
-import { overlaps, wireOf } from './graph';
+// How boxes saved by earlier versions of the app are brought up to date, one step per version. Stored data must keep
+// working, and a stored pension figure must never change meaning without the user knowing. A step changes only what it
+// names. Missing fields get their defaults when the file is read, and a field no version knows is kept and saved again.
 import type { PlacedBox, Wire, WireKind, XYPosition } from './types';
 
 const PAYMENTS_PER_YEAR: Record<string, number> = { weekly: 52, monthly: 12, quarterly: 4, yearly: 1 };
 const RETURN_BOX_SPACE = 320;
+
+// Copies of what the canvas used when these steps were written. The canvas can change its own, and an old file still
+// comes out the same.
+const BOX_SIZE = { width: 320, height: 300 };
+const overlaps = (a: XYPosition, b: XYPosition) =>
+  Math.abs(a.x - b.x) < BOX_SIZE.width && Math.abs(a.y - b.y) < BOX_SIZE.height;
+const wireOf = (source: string, target: string, kind: WireKind): Wire => ({
+  id: `${source}-${target}-${kind}`,
+  source,
+  target,
+  kind,
+});
 
 type Stored = { id: string; type: string; position?: XYPosition; data?: Record<string, unknown> };
 export type Version1 = { nodes: Stored[]; edges: { source: string; target: string }[] };
@@ -81,5 +92,61 @@ export function fromVersion2({ boxes, wires }: Version2): Version2 {
   return {
     boxes: boxes.filter((box) => !gone.has(box.id)),
     wires: wires.filter((wire) => !gone.has(wire.source) && !gone.has(wire.target)),
+  };
+}
+
+// Until version 4 the Norwegian default name was Folketrygden, which is the whole scheme and not the pension the box works
+// out. Only that exact name on that kind of box changes, since anything else is a name someone has written. It moves no
+// money, so no result changes. The words are written out, since this must stay as it is when the texts in the app change.
+export function fromVersion3({ boxes, wires }: Version2): Version2 {
+  return {
+    boxes: boxes.map((box) =>
+      box.type === 'folketrygd' && box.data.name === 'Folketrygden' ? { ...box, data: { ...box.data, name: 'Alderspensjon' } } : box,
+    ),
+    wires,
+  };
+}
+
+// Until version 5 a withdrawal had its own flat tax on pension. Tax on pension now follows the rules and is per person, so
+// the field means nothing any more. What a pension leaves changes with this, which is why it was a decision and not a detail.
+export function fromVersion4({ boxes, wires }: Version2): Version2 {
+  return {
+    boxes: boxes.map((box) => {
+      if (box.type !== 'withdrawal') return box;
+      const { pensionTax: _gone, ...data } = box.data as typeof box.data & { pensionTax?: number };
+      return { ...box, data };
+    }),
+    wires,
+  };
+}
+
+// Until version 6 there was one age for when work stopped, in the box for yourself, and each income said whether it followed
+// that age. Each income now has its own ages, and the result stays the same: one that followed the age stops at it, and
+// the others run on. A missing or empty choice used to count as following the age, so it still does.
+export function fromVersion5({ boxes, wires }: Version2): Version2 {
+  const me = boxes.find((box) => box.type === 'me');
+  const { retirementAge = null } = (me?.data ?? {}) as { retirementAge?: number | null };
+  return {
+    boxes: boxes.map((box) => {
+      if (box.type === 'me') {
+        const { retirementAge: _gone, ...data } = box.data as typeof box.data & { retirementAge?: number | null };
+        return { ...box, data };
+      }
+      if (box.type === 'income') {
+        const { stopsAtRetirement, ...data } = box.data as typeof box.data & { stopsAtRetirement?: boolean | null };
+        return { ...box, data: { ...data, fromAge: null, toAge: (stopsAtRetirement ?? true) ? retirementAge : null } };
+      }
+      return box;
+    }),
+    wires,
+  };
+}
+
+// Until version 7 a home had no kind, since nothing read it. The wealth tax counts them differently, and a file cannot say
+// which box is the cabin, so all of them become the home you live in. It moves no money, and two of them get a warning.
+export function fromVersion6({ boxes, wires }: Version2): Version2 {
+  return {
+    boxes: boxes.map((box) => (box.type === 'housing' ? { ...box, data: { ...box.data, kind: 'primary' } } : box)),
+    wires,
   };
 }

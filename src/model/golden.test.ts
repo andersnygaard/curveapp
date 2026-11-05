@@ -38,13 +38,14 @@ const names: DefaultNames = {
   income: 'a',
   transfer: 'b',
   budget: 'c',
-  budgetHousing: 'd',
+  housing: 'd',
   budgetLiving: 'e',
   account: 'f',
   return: 'g',
   otp: 'h',
   folketrygd: 'i',
   withdrawal: 'j',
+  budgetLine: 'k',
 };
 
 describe('boxes stored by the old app', () => {

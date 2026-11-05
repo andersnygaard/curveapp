@@ -1,3 +1,4 @@
+import { moneyFormat } from '../components/formats';
 import { useTranslations, type Translations } from '../i18n';
 import type { Plan, PlanBalance, PlanDate, PlanLine } from '../model/plan';
 import type { SimulationInput } from '../model/types';
@@ -7,7 +8,7 @@ const ROUND_PAYMENTS_TO = 100;
 const BALANCE_DIGITS = 3;
 
 function paymentText(t: Translations, { amount, lastAmount, currency }: PlanLine): string {
-  const format = new Intl.NumberFormat(t.locale, { style: 'currency', currency, maximumFractionDigits: 0 });
+  const format = moneyFormat(t.locale, currency);
   const [low, high] = [amount, lastAmount].map((value) => Math.round(value / ROUND_PAYMENTS_TO) * ROUND_PAYMENTS_TO).sort((a, b) => a - b);
   return low === high ? format.format(low) : format.formatRange(low, high);
 }
@@ -18,12 +19,13 @@ function balanceText(t: Translations, { name, amount, currency }: PlanBalance): 
 }
 
 function lineText(t: Translations, line: PlanLine): string {
-  const { flow, change, from, to, every } = line;
+  const { flow, change, from, to, every, loan } = line;
   return t.planLines[flow][change]({
     from: from ?? '',
     to: to ?? '',
     amount: paymentText(t, line),
     per: t.planPer[every],
+    loan: loan ? paymentText(t, { ...line, amount: loan, lastAmount: loan }) : '',
   });
 }
 
@@ -38,7 +40,10 @@ function DateSection({ date }: { date: PlanDate }) {
       </h3>
       <ul className="plan-lines">
         {date.lines.map((line, index) => (
-          <li key={index} className={line.flow === 'unmet' && line.change !== 'stops' ? 'plan-short' : undefined}>
+          <li
+            key={index}
+            className={(line.flow === 'unmet' || line.flow === 'wealthTaxShort') && line.change !== 'stops' ? 'callout callout-compact plan-short' : undefined}
+          >
             {lineText(t, line)}
           </li>
         ))}
@@ -64,7 +69,7 @@ export function PlanView({ plan, failed, onClose }: { plan: Plan | null; failed:
       <div className="plan-heading">
         <h2 className="plan-title">{t.plan}</h2>
         {onClose && (
-          <button type="button" className="plan-close" aria-label={t.closePlan} onClick={onClose}>
+          <button type="button" className="icon-button plan-close" aria-label={t.closePlan} onClick={onClose}>
             ×
           </button>
         )}

@@ -17,11 +17,12 @@ const meta: Meta<typeof WithdrawalsChart> = {
   component: WithdrawalsChart,
   args: {
     title: 'Where the money comes from',
-    labels: { other: 'Other', need: 'Need', surplus: 'Left over', surplusGoesOn: 'Goes on to Fund', short: 'Missing', tax: 'Tax' },
+    labels: { other: 'Other', need: 'Need', surplus: 'Left over', surplusGoesOn: 'Goes on to Fund', short: 'Missing', tax: 'Tax', wealthTax: 'Wealth tax' },
     yearEdges,
     surplus: nothing,
     short: nothing,
     tax: nothing,
+    wealthTax: nothing,
     yMax: 70_000,
     startMs: Date.UTC(2030, 0, 1),
     totalDays: YEARS * 365.25,
@@ -101,6 +102,46 @@ export const WhatIsMissingIsHatchedInAnotherWay: Story = {
   },
 };
 
+// The same chart can hold both, and the orange box under what is left over must not make it look like what is missing.
+const leftOverThenMissing = {
+  sources: [source('OTP', 1, Float64Array.from({ length: YEARS }, (_, year) => (year < 12 ? 60_000 : 39_400)))],
+  need: paying(40_000),
+  surplus: paying(20_000, 0, 12),
+  short: paying(600, 12),
+};
+
+export const WhatIsLeftOverAndWhatIsMissingLookDifferent: Story = {
+  args: leftOverThenMissing,
+  play: async ({ canvasElement }) => {
+    await plotted(canvasElement);
+    const style = (selector: string) => getComputedStyle(canvasElement.querySelector(selector)!);
+    await expect(style('.flows-wash').fillOpacity).toBe('1');
+    await expect(style('.flows-hatch').stroke).not.toBe(style('.flows-hatch-short').stroke);
+    await expect(parseFloat(style('.flows-hatch-short').strokeWidth)).toBeGreaterThanOrEqual(3 * parseFloat(style('.flows-hatch').strokeWidth));
+  },
+};
+
+// A swatch drawn apart from the chart once had its stripes the other way, so it looked like the wrong one of the two.
+export const TheSwatchesUseThePatternsInTheChart: Story = {
+  args: leftOverThenMissing,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const svg = await plotted(canvasElement);
+    const fillOf = (selector: string) => canvasElement.querySelector(selector)!.getAttribute('fill');
+
+    // The band that is missing is too thin for its name, so the legend has it.
+    const [inLegend] = canvas.getAllByRole('listitem');
+    await expect(inLegend).toHaveTextContent('Missing');
+    await expect(inLegend.querySelector('rect')!.getAttribute('fill')).toBe(fillOf('.flows-short'));
+
+    const { left, width } = svg.getBoundingClientRect();
+    await fireEvent.pointerMove(svg, { clientX: left + 64 + (width - 74) * 0.1 });
+    const leftOver = (await canvas.findByRole('status')).querySelector('.flows-row:has(rect)')!;
+    await expect(leftOver).toHaveTextContent('Left over');
+    await expect(leftOver.querySelector('rect')!.getAttribute('fill')).toBe(fillOf('.flows-surplus'));
+  },
+};
+
 export const TheNeedLineStartsWhenTheNeedDoes: Story = {
   args: pensionsAndFund,
   play: async ({ canvasElement }) => {
@@ -153,6 +194,42 @@ export const TheTaxLiesOnTop: Story = {
     const { left, width } = svg.getBoundingClientRect();
     await fireEvent.pointerMove(svg, { clientX: left + width / 2 });
     await expect(await canvas.findByRole('status')).toHaveTextContent(`Tax${amount(10_000)}`);
+  },
+};
+
+// It lies in the same layer as the tax, so the layer is as tall as the two together, and it has its own row when hovering.
+export const TheWealthTaxLiesWithTheTax: Story = {
+  args: {
+    sources: [source('Fund', 0, paying(40_000))],
+    need: paying(40_000),
+    tax: paying(3_000),
+    wealthTax: paying(7_000),
+    yMax: 60_000,
+  },
+  play: async ({ canvasElement }) => {
+    const svg = await plotted(canvasElement);
+    await expect(canvasElement.querySelectorAll('.flows-tax')).toHaveLength(1);
+    const need = Math.min(...yValues(canvasElement.querySelector('.flows-need')!));
+    const top = Math.min(...yValues(canvasElement.querySelector('.flows-tax')!));
+    // The need is 40 000 up from the bottom, so the tax is a quarter of that on top of it.
+    const bottom = yValues(canvasElement.querySelector('.flows-layer')!).at(-1)!;
+    await expect((need - top) / (bottom - need)).toBeCloseTo(0.25, 1);
+
+    const { left, width } = svg.getBoundingClientRect();
+    await fireEvent.pointerMove(svg, { clientX: left + width / 2 });
+    const tooltip = await within(canvasElement).findByRole('status');
+    await expect(tooltip).toHaveTextContent(`Tax${amount(3_000)}`);
+    await expect(tooltip).toHaveTextContent(`Wealth tax${amount(7_000)}`);
+  },
+};
+
+export const NoWealthTaxNoRow: Story = {
+  args: { sources: [source('Fund', 0, paying(40_000))], need: paying(40_000), tax: paying(3_000) },
+  play: async ({ canvasElement }) => {
+    const svg = await plotted(canvasElement);
+    const { left, width } = svg.getBoundingClientRect();
+    await fireEvent.pointerMove(svg, { clientX: left + width / 2 });
+    await expect(await within(canvasElement).findByRole('status')).not.toHaveTextContent('Wealth tax');
   },
 };
 

@@ -1,27 +1,26 @@
 // Whole scenarios, from boxes and wires to numbers. All amounts are made-up examples.
 import { describe, expect, it } from 'vitest';
+import { taxOnPension } from '../engine/norway';
 import { runPass, type Model, type PassResult } from '../engine/engine';
 import { noNoise, passNoise } from '../engine/random';
 import { simulate } from '../engine/simulate';
+import { translations } from '../i18n';
 import type { BudgetData } from './boxes/budget';
 import type { IncomeData } from './boxes/income';
+import { catalog } from './catalog';
 import { assumptionsOf } from './query';
-import { compile, diagnose, yearsToAge } from './compile';
+import { compile, diagnose, startMsOf, yearsToAge } from './compile';
 import { wireOf } from './graph';
 import type { Box, SimulationInput, Wire } from './types';
 
 const START = '2027-01-01';
 const flatG = { id: 'g', type: 'g', data: { g: 100_000, gGrowth: 0, standardDeviation: 0 } } as const;
 
-const me = (birthYear: number, retirementAge: number | null = null): Box => ({
-  id: 'me',
-  type: 'me',
-  data: { birthYear, retirementAge },
-});
+const me = (birthYear: number): Box => ({ id: 'me', type: 'me', data: { birthYear } });
 const income = (id: string, amount: number, extra: Partial<IncomeData> = {}): Box => ({
   id,
   type: 'income',
-  data: { name: id, amount, interval: 'monthly', pensionBasis: amount * 12, stopsAtRetirement: true, ...extra },
+  data: { name: id, amount, interval: 'monthly', pensionBasis: amount * 12, fromAge: null, toAge: null, ...extra },
 });
 const transfer = (id: string, amount: number): Box => ({
   id,
@@ -54,7 +53,11 @@ const budget = (id: string, ...amounts: number[]): Box => ({
   data: { name: id, lines: amounts.map((amount, index) => ({ id: `${index}`, name: `line ${index}`, amount })) } satisfies BudgetData,
 });
 const withdrawal = (id: string, startAge: number, perMonth: number, extra: Record<string, unknown> = {}): Box =>
-  ({ id, type: 'withdrawal', data: { name: id, startAge, mode: 'amount', perMonth, percent: 4, pensionTax: 0, ...extra } }) as Box;
+  ({ id, type: 'withdrawal', data: { name: id, startAge, mode: 'amount', perMonth, percent: 4, ...extra } }) as Box;
+// What a pension leaves a month, and the tax on it, with the rules the engine uses.
+const taxOn = (perMonth: number, hasCredit = true) => taxOnPension(perMonth * 12, hasCredit) / 12;
+const leftOf = (perMonth: number, hasCredit = true) => perMonth - taxOn(perMonth, hasCredit);
+
 
 const money = (source: string, target: string): Wire => wireOf(source, target, 'money');
 const basis = (source: string, target: string): Wire => wireOf(source, target, 'basis');
@@ -93,6 +96,14 @@ describe('income is money', () => {
     };
     const { end } = run(input, 1);
     expect(end('a')).toBe(1_000 * 12);
+    expect(diagnose(input)).toEqual([{ boxId: 'i', code: 'transfersExceedIncome' }]);
+  });
+
+  it('still warns when transfers are too large, whatever a negative transfer beside them says', () => {
+    const input = {
+      boxes: [income('i', 1_000), transfer('t1', 30_000), transfer('t2', -30_000), account('a')],
+      wires: [money('i', 't1'), money('t1', 'a'), money('i', 't2'), money('t2', 'a')],
+    };
     expect(diagnose(input)).toEqual([{ boxId: 'i', code: 'transfersExceedIncome' }]);
   });
 
@@ -159,12 +170,31 @@ describe('budget', () => {
     expect(end('c')).toBe(10_000 * 12);
   });
 
+  it('counts a negative transfer as nothing, since it moves nothing', () => {
+    const outcome = (amount: number) => {
+      const input = {
+        boxes: [income('i', 30_000), transfer('t', amount), budget('b', 20_000), account('a'), account('c')],
+        wires: [money('i', 't'), money('t', 'c'), money('i', 'b'), money('b', 'a')],
+      };
+      return { saved: run(input, 1).end('a'), warnings: diagnose(input) };
+    };
+    expect(outcome(-5_000)).toEqual(outcome(0));
+    closeTo(outcome(-5_000).saved, 10_000 * 12, 0.01);
+  });
+
   it('lets the other income carry the budget when one stops', () => {
-    const boxes = [me(1980, 49), income('i', 50_000), income('r', 40_000, { stopsAtRetirement: false }), budget('b', 30_000), account('a')];
+    const boxes = [me(1980), income('i', 50_000, { toAge: 49 }), income('r', 40_000), budget('b', 30_000), account('a')];
     const wires = [money('i', 'b'), money('r', 'b'), money('b', 'a')];
     const { end } = run({ boxes, wires }, 3);
     // 2027 and 2028 with both incomes, 2029 with one.
     closeTo(end('a'), 60_000 * 24 + 10_000 * 12, 1);
+  });
+
+  it('counts an income only from the age it starts', () => {
+    const boxes = [me(1980), income('i', 50_000, { toAge: 49 }), income('r', 40_000, { fromAge: 49 }), budget('b', 30_000), account('a')];
+    const { end } = run({ boxes, wires: [money('i', 'b'), money('r', 'b'), money('b', 'a')] }, 3);
+    // 2027 and 2028 with the first income, 2029 with the second.
+    closeTo(end('a'), 20_000 * 24 + 10_000 * 12, 1);
   });
 });
 
@@ -236,7 +266,7 @@ describe('Folketrygden', () => {
   });
 
   it('stops the line at the payout age and pays the balance divided by the divisor', () => {
-    const boxes = [me(1980, 50), flatG, folketrygd('f', 2_000_000, { payoutAge: 50, divisor: 20 }), account('a')];
+    const boxes = [me(1980), flatG, folketrygd('f', 2_000_000, { payoutAge: 50, divisor: 20 }), account('a')];
     const wires = [money('f', 'a')];
     const { model, pass, end } = run({ boxes, wires }, 5);
     expect(Number.isNaN(end('f'))).toBe(true);
@@ -254,9 +284,9 @@ describe('Folketrygden', () => {
   });
 });
 
-describe('retirement', () => {
+describe('the ages an income runs between', () => {
   it('stops income, transfers, OTP deposits and earnings at the same age, but keeps growth', () => {
-    const boxes = [me(1980, 49), flatG, income('i', 30_000, { pensionBasis: 600_000 }), transfer('t', 5_000), account('a', 0), otp('o'), folketrygd('f', 0)];
+    const boxes = [me(1980), flatG, income('i', 30_000, { pensionBasis: 600_000, toAge: 49 }), transfer('t', 5_000), account('a', 0), otp('o'), folketrygd('f', 0)];
     const wires = [money('i', 't'), money('t', 'a'), basis('i', 'o'), basis('i', 'f')];
     const { end } = run({ boxes, wires }, 6);
     expect(end('a')).toBe(5_000 * 24);
@@ -265,16 +295,225 @@ describe('retirement', () => {
     closeTo(end('f'), 3 * 0.181 * 600_000);
   });
 
-  it('lets an income such as rent continue', () => {
-    const boxes = [me(1980, 49), income('r', 10_000, { stopsAtRetirement: false }), account('a')];
+  it('lets an income with no ages run through the whole period', () => {
+    const boxes = [me(1980), income('r', 10_000), account('a')];
     expect(run({ boxes, wires: [money('r', 'a')] }, 4).end('a')).toBe(10_000 * 48);
+    expect(diagnose({ boxes, wires: [money('r', 'a')] })).toEqual([]);
   });
 
-  it('needs a birth year to know when', () => {
-    const boxes = [me(0, 49), income('i', 10_000), account('a')];
+  it('starts an income at the age it is to start', () => {
+    const boxes = [me(1980), income('i', 10_000, { fromAge: 49 }), account('a')];
+    // 2029, 2030 and 2031.
+    expect(run({ boxes, wires: [money('i', 'a')] }, 5).end('a')).toBe(10_000 * 36);
+  });
+
+  it('runs up to the age it stops at and not through it', () => {
+    const boxes = [me(1980), income('i', 10_000, { fromAge: 49, toAge: 50 }), account('a')];
+    expect(run({ boxes, wires: [money('i', 'a')] }, 6).end('a')).toBe(10_000 * 12);
+  });
+
+  it('lets a salary stop at one age while a smaller job runs on', () => {
+    const boxes = [me(1980), income('salary', 50_000, { toAge: 49 }), income('cafe', 20_000, { fromAge: 49, toAge: 51 }), account('a')];
+    const { end } = run({ boxes, wires: [money('salary', 'a'), money('cafe', 'a')] }, 6);
+    expect(end('a')).toBe(50_000 * 24 + 20_000 * 24);
+  });
+
+  it('earns OTP and Folketrygden only while the income runs, also before it has started', () => {
+    const boxes = [me(1980), flatG, income('i', 30_000, { pensionBasis: 600_000, fromAge: 49, toAge: 51 }), otp('o'), folketrygd('f', 0)];
+    const { end } = run({ boxes, wires: [basis('i', 'o'), basis('i', 'f')] }, 6);
+    closeTo(end('o'), 2 * 0.05 * 600_000);
+    // Only the two years it ran, with nothing for the year before the start.
+    closeTo(end('f'), 2 * 0.181 * 600_000);
+  });
+
+  it('earns OTP from each income for the years it runs', () => {
+    const boxes = [
+      me(1980),
+      flatG,
+      income('salary', 30_000, { pensionBasis: 600_000, toAge: 49 }),
+      income('cafe', 15_000, { pensionBasis: 240_000, fromAge: 49, toAge: 51 }),
+      otp('o'),
+    ];
+    const { end } = run({ boxes, wires: [basis('salary', 'o'), basis('cafe', 'o')] }, 6);
+    closeTo(end('o'), 2 * 0.05 * 600_000 + 2 * 0.05 * 240_000);
+  });
+
+  it('runs through the whole period without a birth year, and says that it needs one', () => {
+    const boxes = [me(0), income('i', 10_000, { fromAge: 49, toAge: 50 }), account('a')];
     const input = { boxes, wires: [money('i', 'a')] };
     expect(run(input, 3).end('a')).toBe(10_000 * 36);
-    expect(diagnose(input)).toContainEqual({ boxId: 'me', code: 'needsBirthYear' });
+    expect(diagnose(input)).toEqual([{ boxId: 'i', code: 'needsBirthYear' }]);
+  });
+
+  it('needs no birth year when no age is filled in', () => {
+    expect(diagnose({ boxes: [me(0), income('i', 10_000), account('a')], wires: [money('i', 'a')] })).toEqual([]);
+  });
+
+  it('warns when the ages leave no time for it to run', () => {
+    const input = { boxes: [me(1980), income('i', 10_000, { fromAge: 50, toAge: 49 }), account('a')], wires: [money('i', 'a')] };
+    expect(diagnose(input)).toEqual([{ boxId: 'i', code: 'incomeNeverRuns' }]);
+    expect(run(input, 6).end('a')).toBe(0);
+  });
+
+  it('starts a new income with an age to stop at, so it does not run for life without anyone choosing it', () => {
+    expect(catalog.income.defaults(translations.no.defaultNames)).toMatchObject({ fromAge: null, toAge: 67 });
+  });
+});
+
+describe('an income wired straight to a withdrawal', () => {
+  const lastFrame = (input: SimulationInput, years: number) => [...simulate(compile(input, years), [20])].at(-1)!;
+  const shownOf = (input: SimulationInput, years: number) => lastFrame(input, years).summary.withdrawals[0];
+  const job = (amount = 15_000, extra: Partial<IncomeData> = {}) => income('job', amount, { pensionBasis: 0, ...extra });
+
+  it('counts before the accounts, so less is drawn from them', () => {
+    const boxes = [me(1980), job(), account('a', 1_000_000), withdrawal('w', 47, 40_000)];
+    const { end } = run({ boxes, wires: [money('job', 'w'), money('a', 'w')] }, 1);
+    expect(end('a')).toBe(1_000_000 - 12 * 25_000);
+  });
+
+  it('counts before the accounts also when the need is a share of them', () => {
+    const boxes = [me(1980), job(5_000), account('a', 1_200_000), withdrawal('w', 47, 0, { mode: 'percent', percent: 12 })];
+    const { end } = run({ boxes, wires: [money('job', 'w'), money('a', 'w')] }, 1);
+    closeTo(end('a'), 1_200_000 - 12 * 7_000, 0.01);
+  });
+
+  it('pays no tax on pension, and leaves the tax on the pension beside it as it was', () => {
+    const boxes = [
+      me(1980),
+      flatG,
+      job(),
+      account('a', 1_000_000),
+      folketrygd('f', 30_000 * 12 * 20, { payoutAge: 47, divisor: 20 }),
+      withdrawal('w', 47, 60_000),
+    ];
+    const { end, pass } = run({ boxes, wires: [money('job', 'w'), money('f', 'w'), money('a', 'w')] }, 1);
+    expect(taxOn(30_000)).toBeGreaterThan(0);
+    expect(pass.ledger.flows.get('tax:pension')![0]).toBeCloseTo(12 * taxOn(30_000), 2);
+    closeTo(end('a'), 1_000_000 - 12 * (60_000 - leftOf(30_000) - 15_000), 0.01);
+  });
+
+  it('gets only what is left after its fixed transfers', () => {
+    const boxes = [me(1980), job(20_000), transfer('t', 5_000), account('b'), account('a', 1_000_000), withdrawal('w', 47, 40_000)];
+    const { end } = run({ boxes, wires: [money('job', 't'), money('t', 'b'), money('job', 'w'), money('a', 'w')] }, 1);
+    expect(end('b')).toBe(12 * 5_000);
+    expect(end('a')).toBe(1_000_000 - 12 * 25_000);
+  });
+
+  it('lies between the pensions and the accounts in the graph, whichever wire came first', () => {
+    const boxes = [
+      me(1980),
+      flatG,
+      job(),
+      account('fund', 100_000),
+      otp('o', { startAmount: 1_200_000, payoutAge: 47, payoutYears: 10 }),
+      folketrygd('f', 1_200_000, { payoutAge: 47, divisor: 20 }),
+      withdrawal('w', 47, 40_000),
+    ];
+    const wires = [money('fund', 'w'), money('job', 'w'), money('o', 'w'), money('f', 'w')];
+    const namesWith = (order: Wire[]) => shownOf({ boxes, wires: order }, 2).sources.map((source) => source.name);
+    expect(namesWith(wires)).toEqual(['f', 'o', 'job', 'fund']);
+    expect(namesWith([...wires].reverse())).toEqual(['f', 'o', 'job', 'fund']);
+  });
+
+  it('shows what it pays a month, and adds up with the rest', () => {
+    const boxes = [me(1980), job(), account('a', 1_000_000), withdrawal('w', 47, 40_000)];
+    const shown = shownOf({ boxes, wires: [money('job', 'w'), money('a', 'w')] }, 2);
+    const [paidByJob, paidByAccount] = shown.sources;
+    expect(paidByJob.perMonth[0]).toBe(15_000);
+    expect(paidByAccount.perMonth[0]).toBeCloseTo(25_000, 6);
+    expect(shown.need[0]).toBe(40_000);
+    expect(shown.tax[0]).toBe(0);
+  });
+
+  it('stops counting when the job stops, and then the accounts take over', () => {
+    const boxes = [me(1980), job(15_000, { toAge: 48 }), account('a', 1_000_000), withdrawal('w', 47, 40_000)];
+    const { end } = run({ boxes, wires: [money('job', 'w'), money('a', 'w')] }, 2);
+    expect(end('a')).toBe(1_000_000 - 12 * 25_000 - 12 * 40_000);
+  });
+
+  it('goes on to the account before the withdrawal starts, and what is left over after that as well', () => {
+    const boxes = [me(1980), job(10_000), account('a'), withdrawal('w', 48, 4_000)];
+    const { end } = run({ boxes, wires: [money('job', 'w'), money('w', 'a'), money('a', 'w')] }, 2);
+    expect(end('a')).toBe(12 * 10_000 + 12 * 6_000);
+  });
+
+  it('counts as spent when there is no account to go on to, and says so', () => {
+    const boxes = [me(1980), job(10_000), account('a'), withdrawal('w', 48, 4_000)];
+    const input = { boxes, wires: [money('job', 'w')] };
+    const { end, model, pass } = run(input, 2);
+    expect(end('a')).toBe(0);
+    expect(pass.closing[model.stocks.findIndex((stock) => stock.id === 'w')]).toBe(0);
+    expect(diagnose(input)).toEqual([{ boxId: 'w', code: 'surplusIsSpent' }]);
+    expect(shownOf(input, 2).surplusTo).toBeNull();
+  });
+
+  it('covers only the month it comes when it is yearly, and what is left over goes on', () => {
+    const boxes = [me(1980), job(100_000, { interval: 'yearly' }), account('a', 1_000_000), withdrawal('w', 47, 10_000)];
+    const input = { boxes, wires: [money('job', 'w'), money('a', 'w'), money('w', 'a')] };
+    expect(run(input, 1).end('a')).toBe(1_000_000 + 90_000 - 11 * 10_000);
+    const shown = shownOf(input, 1);
+    expect(shown.surplus[0]).toBeCloseTo(90_000 / 12, 6);
+    const paid = shown.sources.reduce((sum, source) => sum + source.perMonth[0], 0);
+    expect(paid).toBeCloseTo(shown.need[0] + shown.surplus[0], 6);
+  });
+
+  it('collects a weekly income until the month is settled', () => {
+    const boxes = [me(1980), job(1_500, { interval: 'weekly' }), account('a', 100_000), withdrawal('w', 47, 4_000)];
+    const { end } = run({ boxes, wires: [money('job', 'w'), money('a', 'w'), money('w', 'a')] }, 1);
+    // The first month has nothing yet, so it comes from the account. The 48 Mondays up to 1 December pay the next eleven and
+    // leave the rest for the account.
+    expect(end('a')).toBe(100_000 - 4_000 + 48 * 1_500 - 11 * 4_000);
+  });
+
+  it('warns when it also goes straight to an account, since the rest can only go one way', () => {
+    const input = { boxes: [me(1980), job(), account('a'), withdrawal('w', 47, 1_000)], wires: [money('job', 'w'), money('job', 'a'), money('w', 'a')] };
+    expect(diagnose(input)).toEqual([{ boxId: 'job', code: 'restGoesOnlyOnce' }]);
+  });
+
+  it('adds up in every pass, and leaves nothing behind in the withdrawal', () => {
+    const boxes = [
+      me(1985),
+      { id: 'g', type: 'g', data: { g: 100_000, gGrowth: 0, standardDeviation: 1 } } as Box,
+      income('salary', 45_000, { pensionBasis: 700_000, toAge: 55 }),
+      income('cafe', 20_000, { pensionBasis: 240_000, fromAge: 55, toAge: 67 }),
+      transfer('t', 10_000),
+      account('fund', 500_000, { accountType: 'ask', taxRate: 37.84, inflation: 2.5 }),
+      market('world', 4, 15),
+      otp('otp', { startAmount: 300_000, payoutAge: 67, payoutYears: 15 }),
+      folketrygd('ft', 1_000_000, { payoutAge: 67, divisor: 20 }),
+      withdrawal('fire', 55, 30_000),
+    ];
+    const wires = [
+      money('salary', 't'),
+      money('t', 'fund'),
+      money('cafe', 'fire'),
+      influence('world', 'fund'),
+      influence('world', 'otp'),
+      basis('salary', 'otp'),
+      basis('salary', 'ft'),
+      basis('cafe', 'otp'),
+      basis('cafe', 'ft'),
+      money('fund', 'fire'),
+      money('otp', 'fire'),
+      money('ft', 'fire'),
+      money('fire', 'fund'),
+    ];
+    expect(diagnose({ boxes, wires })).toEqual([]);
+    const model = compile({ boxes, wires }, 95 - (2027 - 1985));
+    for (let pair = 0; pair < 20; pair++) {
+      const { ledger, closing } = runPass(model, passNoise(pair, 1));
+      model.stocks.forEach((stock, index) => {
+        const expected = stock.opening + ledger.in[index] + ledger.growth[index] - ledger.out[index];
+        expect(Math.abs(expected - closing[index])).toBeLessThan(0.001);
+        expect(closing[index]).toBeGreaterThanOrEqual(0);
+      });
+      expect(closing[model.stocks.findIndex((stock) => stock.id === 'fire')]).toBeCloseTo(0, 6);
+    }
+    const shown = shownOf({ boxes, wires }, 95 - (2027 - 1985));
+    shown.need.forEach((need, year) => {
+      const paid = shown.sources.reduce((sum, source) => sum + source.perMonth[year], 0);
+      expect(paid + shown.short[year]).toBeCloseTo(need + shown.surplus[year], 4);
+    });
   });
 });
 
@@ -284,7 +523,8 @@ describe('OTP payout', () => {
   it('empties the account exactly at the end and sends the money on', () => {
     const { end, pass, model } = run({ boxes, wires: [money('o', 'a')] }, 5);
     expect(end('o')).toBe(0);
-    expect(end('a')).toBe(1_200_000);
+    // 50 000 a month for 24 months, less the tax on it. Occupational pension alone gives no credit.
+    expect(end('a')).toBeCloseTo(24 * leftOf(50_000, false), 2);
     expect(pass.ledger.short[model.stocks.findIndex((s) => s.id === 'o')]).toBe(0);
   });
 
@@ -346,14 +586,17 @@ describe('withdrawal', () => {
     const { end, pass } = run({ boxes, wires }, 12);
     const spentFromPension = pass.ledger.flows.get('spent:pension')!;
     const spentFromAccounts = pass.ledger.flows.get('spent:accounts')!;
-    // Ten years with 63 000 against a need of 40 000.
+    // Ten years with 63 000 before tax against a need of 40 000.
+    const surplus = leftOf(63_000) - 40_000;
+    expect(surplus).toBeGreaterThan(0);
     expect(spentFromPension[0]).toBeCloseTo(40_000 * 12, 2);
-    expect(pass.ledger.flows.get('surplus')![0]).toBeCloseTo(23_000 * 12, 2);
+    expect(pass.ledger.flows.get('surplus')![0]).toBeCloseTo(surplus * 12, 2);
     expect(spentFromAccounts[0]).toBe(0);
-    // Then one pension of 20 000, and the rest of the 40 000 from the savings.
+    // Then one pension of 20 000, too small to be taxed, and the rest of the 40 000 from the savings.
+    expect(taxOn(20_000)).toBe(0);
     expect(spentFromPension[10]).toBeCloseTo(20_000 * 12, 2);
     expect(spentFromAccounts[10]).toBeCloseTo(20_000 * 12, 2);
-    closeTo(end('fund'), 23_000 * 120 - 20_000 * 24, 0.01);
+    closeTo(end('fund'), surplus * 120 - 20_000 * 24, 0.01);
   });
 
   it('draws from several accounts by size', () => {
@@ -402,14 +645,20 @@ describe('withdrawal', () => {
 
 describe('ages given to the month', () => {
   it('stops income in the middle of a year', () => {
-    const { end } = run({ boxes: [me(1980, 49.5), income('i', 10_000), account('a')], wires: [money('i', 'a')] }, 5);
+    const { end } = run({ boxes: [me(1980), income('i', 10_000, { toAge: 49.5 }), account('a')], wires: [money('i', 'a')] }, 5);
     // January 2027 to June 2029.
     expect(end('a')).toBe(30 * 10_000);
   });
 
+  it('starts income in the middle of a year', () => {
+    const { end } = run({ boxes: [me(1980), income('i', 10_000, { fromAge: 49.5 }), account('a')], wires: [money('i', 'a')] }, 3);
+    // July to December 2029.
+    expect(end('a')).toBe(6 * 10_000);
+  });
+
   it('keeps OTP and Folketrygden whole when work stops in the middle of a year', () => {
     const { end } = run(
-      { boxes: [me(1980, 49.5), flatG, income('i', 30_000, { pensionBasis: 600_000 }), otp('o'), folketrygd('f', 0)], wires: [basis('i', 'o'), basis('i', 'f')] },
+      { boxes: [me(1980), flatG, income('i', 30_000, { pensionBasis: 600_000, toAge: 49.5 }), otp('o'), folketrygd('f', 0)], wires: [basis('i', 'o'), basis('i', 'f')] },
       5,
     );
     closeTo(end('o'), 30 * (30_000 / 12), 1);
@@ -424,7 +673,7 @@ describe('ages given to the month', () => {
 
   it('starts a payout in the middle of a year', () => {
     const { end } = run({ boxes: [me(1980), otp('o', { startAmount: 120_000, payoutAge: 47.5, payoutYears: 1 }), account('a')], wires: [money('o', 'a')] }, 1);
-    expect(end('a')).toBe(6 * 10_000);
+    expect(end('a')).toBeCloseTo(6 * leftOf(10_000, false), 2);
   });
 });
 
@@ -505,7 +754,8 @@ describe('a pension that starts before the simulation', () => {
 
   it('pays out at once what remains after a term that is already over', () => {
     const boxes = [me(1950), otp('o', { startAmount: 500_000, payoutAge: 65, payoutYears: 10 }), account('a')];
-    expect(run({ boxes, wires: [money('o', 'a')] }, 1).end('a')).toBe(500_000);
+    // Taxed as if a month like this lasted a year, which is too much for one payment. See taxPensions.
+    expect(run({ boxes, wires: [money('o', 'a')] }, 1).end('a')).toBeCloseTo(leftOf(500_000, false), 2);
   });
 });
 
@@ -539,8 +789,8 @@ describe('what warns', () => {
 });
 
 describe('Folketrygden when work and pension meet', () => {
-  const balance = (retirementAge: number, payoutAge: number, start = START) => {
-    const boxes = [me(1980, retirementAge), flatG, income('i', 30_000, { pensionBasis: 600_000 }), folketrygd('f', 0, { payoutAge, divisor: 20, startDate: start })];
+  const balance = (toAge: number, payoutAge: number, start = START) => {
+    const boxes = [me(1980), flatG, income('i', 30_000, { pensionBasis: 600_000, toAge }), folketrygd('f', 0, { payoutAge, divisor: 20, startDate: start })];
     const { summary } = [...simulate(compile({ boxes, wires: [basis('i', 'f')] }, 8))][0];
     return summary.stocks[0];
   };
@@ -576,12 +826,25 @@ describe('an account that opens after the period', () => {
   });
 });
 
+describe('the day the simulation starts', () => {
+  it('is the first start date of an account, OTP or pension', () => {
+    const boxes = [account('a'), otp('o', { startDate: '2026-06-01' }), folketrygd('f', 0, { startDate: '2026-09-01' })];
+    expect(startMsOf({ boxes, wires: [] })).toBe(Date.parse('2026-06-01'));
+  });
+
+  it('is not moved by a start date left on another kind of box, as a file edited by hand can have', () => {
+    const salary = income('i', 10_000);
+    const stray = { ...salary, data: { ...salary.data, startDate: '2001-01-01' } } as Box;
+    expect(startMsOf({ boxes: [stray, account('a')], wires: [money('i', 'a')] })).toBe(Date.parse(START));
+  });
+});
+
 // A whole life with two pensions, a loop and an account that can run out.
 const life: SimulationInput = {
   boxes: [
-    me(1985, 60),
+    me(1985),
     { id: 'g', type: 'g', data: { g: 100_000, gGrowth: 0, standardDeviation: 1 } },
-    income('salary', 45_000, { pensionBasis: 700_000 }),
+    income('salary', 45_000, { pensionBasis: 700_000, toAge: 60 }),
     budget('budget', 25_000),
     account('fund', 500_000, { accountType: 'ask', taxRate: 37.84, inflation: 2.5 }),
     market('world', 4, 15),
@@ -717,6 +980,42 @@ describe('the simulation as a whole', () => {
     expect(above).toBe(50);
   });
 
+  it('draws the bands where the market formula puts them', () => {
+    const YEARS = 30;
+    const RATE = 0.04;
+    const VOLATILITY = 0.15;
+    const start = 100_000;
+    const fund = compile({ boxes: [account('a', start), market('m', RATE * 100, VOLATILITY * 100)], wires: [influence('m', 'a')] }, YEARS);
+    const { median, spread } = [...simulate(fund, [1000])][0].summary.stocks[0];
+    const at = (zScore: number) => start * (1 + RATE) ** YEARS * Math.exp(zScore * VOLATILITY * Math.sqrt(YEARS));
+    const near = (value: number, expected: number) => expect(Math.abs(value / expected - 1)).toBeLessThan(0.08);
+    near(median.at(-1)!, at(0));
+    near(spread.p25.at(-1)!, at(-0.6745));
+    near(spread.p75.at(-1)!, at(0.6745));
+    near(spread.p10.at(-1)!, at(-1.2816));
+    near(spread.p90.at(-1)!, at(1.2816));
+  });
+
+  it('keeps the bands in order around the median, also with withdrawals', () => {
+    const frame = [...simulate(model, [100])][0];
+    for (const { median, spread } of frame.summary.stocks) {
+      for (let sample = 0; sample < median.length; sample++) {
+        if (Number.isNaN(median[sample])) continue;
+        expect(spread.p10[sample]).toBeLessThanOrEqual(spread.p25[sample]);
+        expect(spread.p25[sample]).toBeLessThanOrEqual(median[sample]);
+        expect(median[sample]).toBeLessThanOrEqual(spread.p75[sample]);
+        expect(spread.p75[sample]).toBeLessThanOrEqual(spread.p90[sample]);
+      }
+    }
+  });
+
+  it('has bands with no width when nothing is random', () => {
+    const fixed = compile({ boxes: [account('a', 100), market('m', 4, 0)], wires: [influence('m', 'a')] }, 5);
+    const { median, spread } = [...simulate(fixed)][0].summary.stocks[0];
+    expect(Array.from(spread.p10)).toEqual(Array.from(median));
+    expect(Array.from(spread.p90)).toEqual(Array.from(median));
+  });
+
   it('needs only two passes when nothing is random', () => {
     const fixed = compile({ boxes: [account('a', 100), market('m', 4, 0)], wires: [influence('m', 'a')] }, 5);
     const frames = [...simulate(fixed)];
@@ -729,7 +1028,7 @@ describe('the simulation as a whole', () => {
   it('knows how long it takes to reach an age', () => {
     expect(yearsToAge(input, 95)).toBe(lifeYears);
     expect(yearsToAge({ boxes: [me(0), account('a')], wires: [] }, 95)).toBe(0);
-    expect(assumptionsOf(input.boxes).retirementAge).toBe(60);
+    expect(assumptionsOf(input.boxes).birthYear).toBe(1985);
   });
 });
 
@@ -898,12 +1197,35 @@ describe('what a withdrawal draws on', () => {
     wires: [money('fund', 'w'), money('o', 'w'), money('f', 'w'), money('w', 'fund')],
   });
 
+  it('stacks the old-age pension at the bottom, then the occupational pension and then the accounts, whichever wire came first', () => {
+    const { boxes, wires } = twoPensions();
+    const namesWith = (order: Wire[]) => first({ boxes, wires: order }, 12).sources.map((source) => source.name);
+    expect(namesWith(wires)).toEqual(['f', 'o', 'fund']);
+    expect(namesWith([...wires].reverse())).toEqual(['f', 'o', 'fund']);
+  });
+
+  it('keeps boxes of the same kind in the order they were wired, so they do not swap colours', () => {
+    const boxes = [me(1980), flatG, account('first', 1_000_000), account('second', 1_000_000), withdrawal('w', 47, 10_000)];
+    const namesWith = (wires: Wire[]) => first({ boxes, wires }, 2).sources.map((source) => source.name);
+    expect(namesWith([money('first', 'w'), money('second', 'w')])).toEqual(['first', 'second']);
+    expect(namesWith([money('second', 'w'), money('first', 'w')])).toEqual(['second', 'first']);
+  });
+
+  it('pays the same whichever way the pensions are stacked', () => {
+    const { boxes, wires } = twoPensions();
+    const paid = (order: Wire[]) =>
+      Object.fromEntries(first({ boxes, wires: order }, 12).sources.map((source) => [source.name, Array.from(source.perMonth)]));
+    expect(paid([...wires].reverse())).toEqual(paid(wires));
+  });
+
   it('shows what each box pays in kroner a month, with the pensions first since they count first', () => {
     const shown = first(twoPensions(), 12);
-    expect(shown.sources.map((source) => source.name)).toEqual(['o', 'f', 'fund']);
-    const [o, f, fund] = shown.sources;
-    expect(o.perMonth[0]).toBeCloseTo(43_000, 0);
-    expect(f.perMonth[0]).toBeCloseTo(20_000, 0);
+    expect(shown.sources.map((source) => source.name)).toEqual(['f', 'o', 'fund']);
+    const [f, o, fund] = shown.sources;
+    // After tax, and the two share the tax on all the pension.
+    const keeps = leftOf(63_000) / 63_000;
+    expect(o.perMonth[0]).toBeCloseTo(43_000 * keeps, 0);
+    expect(f.perMonth[0]).toBeCloseTo(20_000 * keeps, 0);
     expect(fund.perMonth[0]).toBe(0);
     // The occupational pension has stopped, and the savings cover the rest of the 40 000.
     expect(o.perMonth[10]).toBe(0);
@@ -914,7 +1236,7 @@ describe('what a withdrawal draws on', () => {
   it('shows the need, and what the pensions pay beyond it and where that goes', () => {
     const shown = first(twoPensions(), 12);
     expect(shown.need[0]).toBe(40_000);
-    expect(shown.surplus[0]).toBeCloseTo(23_000, 0);
+    expect(shown.surplus[0]).toBeCloseTo(leftOf(63_000) - 40_000, 0);
     expect(shown.surplus[10]).toBe(0);
     expect(shown.surplusTo).toBe('fund');
     expect(shown.short[0]).toBe(0);
@@ -1120,42 +1442,89 @@ describe('tax on a withdrawal', () => {
     const national = (perMonth = PENSION) => folketrygd('f', perMonth * 12 * 20, { payoutAge: 47, divisor: 20 });
 
     it('leaves the pension after tax to count, so the accounts cover more', () => {
-      const boxes = [me(1980), flatG, account('a', 1_000_000), national(), withdrawal('w', 47, 40_000, { pensionTax: 24 })];
+      const boxes = [me(1980), flatG, account('a', 1_000_000), national(), withdrawal('w', 47, 40_000)];
       const { pass } = run({ boxes, wires: [money('f', 'w'), money('a', 'w')] }, 1);
-      expect(firstYear(pass, 'tax:pension')).toBeCloseTo(7_200, 2);
-      expect(firstYear(pass, 'spent:pension')).toBeCloseTo(22_800, 2);
-      expect(firstYear(pass, 'spent:accounts')).toBeCloseTo(17_200, 2);
+      expect(firstYear(pass, 'tax:pension')).toBeCloseTo(taxOn(PENSION), 2);
+      expect(firstYear(pass, 'spent:pension')).toBeCloseTo(leftOf(PENSION), 2);
+      expect(firstYear(pass, 'spent:accounts')).toBeCloseTo(40_000 - leftOf(PENSION), 2);
     });
 
     it('sends on only what is left after tax', () => {
-      const boxes = [me(1980), flatG, account('a', 0), national(60_000), withdrawal('w', 47, 40_000, { pensionTax: 25 })];
+      const boxes = [me(1980), flatG, account('a', 0), national(60_000), withdrawal('w', 47, 40_000)];
       const { pass } = run({ boxes, wires: [money('f', 'w'), money('a', 'w'), money('w', 'a')] }, 1);
-      expect(firstYear(pass, 'surplus')).toBeCloseTo(5_000, 2);
+      expect(firstYear(pass, 'surplus')).toBeCloseTo(leftOf(60_000) - 40_000, 2);
       expect(pass.ledger.in[ACCOUNT]).toBeCloseTo(flow(pass, 'surplus'), 2);
     });
 
     it('also taxes pension that comes before the withdrawal starts', () => {
-      const boxes = [me(1980), flatG, national(), withdrawal('w', 60, 40_000, { pensionTax: 50 })];
+      const boxes = [me(1980), flatG, national(), withdrawal('w', 60, 40_000)];
       const { pass } = run({ boxes, wires: [money('f', 'w')] }, 1);
-      expect(firstYear(pass, 'tax:pension')).toBeCloseTo(15_000, 2);
-      expect(firstYear(pass, 'surplus')).toBeCloseTo(15_000, 2);
+      expect(firstYear(pass, 'tax:pension')).toBeCloseTo(taxOn(PENSION), 2);
+      expect(firstYear(pass, 'surplus')).toBeCloseTo(leftOf(PENSION), 2);
     });
 
     it('does not tax pension twice while it waits for an account to open', () => {
       const late = account('a', 0, { startDate: '2028-01-01' });
-      const boxes = [account('first', 100), me(1980), flatG, late, national(), withdrawal('w', 60, 40_000, { pensionTax: 50 })];
+      const boxes = [account('first', 100), me(1980), flatG, late, national(), withdrawal('w', 60, 40_000)];
       const { pass } = run({ boxes, wires: [money('f', 'w'), money('w', 'a')] }, 2);
       const paidIn = flow(pass, `payout:f`);
-      expect(flow(pass, 'tax:pension')).toBeCloseTo(paidIn * 0.5, 2);
+      expect(flow(pass, 'tax:pension')).toBeCloseTo((paidIn * taxOn(PENSION)) / PENSION, 2);
     });
 
-    it('keeps the rate within what makes sense', () => {
-      const tax = (pensionTax: number) => {
-        const boxes = [me(1980), flatG, national(), withdrawal('w', 60, 1_000, { pensionTax })];
-        return firstYear(run({ boxes, wires: [money('f', 'w')] }, 1).pass, 'tax:pension');
-      };
-      expect(tax(-10)).toBe(0);
-      expect(tax(150)).toBeCloseTo(PENSION, 2);
+    it('takes nothing from a pension too small to be taxed', () => {
+      const boxes = [me(1980), flatG, national(20_000), withdrawal('w', 47, 40_000)];
+      const { pass } = run({ boxes, wires: [money('f', 'w')] }, 1);
+      expect(flow(pass, 'tax:pension')).toBe(0);
+    });
+
+    describe('is per person, so all the pension counts together', () => {
+      const occupational = (perMonth = PENSION) => otp('o', { startAmount: perMonth * 120, payoutAge: 47, payoutYears: 10 });
+
+      it('has two withdrawals share one bill, each paying for what it receives', () => {
+        const boxes = [me(1980), flatG, national(), occupational(), withdrawal('w', 47, 1_000), withdrawal('v', 47, 1_000)];
+        const { pass, model } = run({ boxes, wires: [money('f', 'w'), money('o', 'v')] }, 1);
+        const shownAs = (id: string) => (pass.ledger.flows.get(`tax:${model.stocks.findIndex((stock) => stock.id === id)}`)?.[0] ?? 0) / 12;
+        const share = taxOn(2 * PENSION) / 2;
+        expect(share).toBeGreaterThan(taxOn(PENSION));
+        expect(shownAs('w')).toBeCloseTo(share, 2);
+        expect(shownAs('v')).toBeCloseTo(share, 2);
+      });
+
+      it('takes the tax from the account when a pension goes straight there', () => {
+        const { end, pass, model } = run({ boxes: [me(1980), flatG, national(), account('a', 0)], wires: [money('f', 'a')] }, 1);
+        expect(end('a')).toBeCloseTo(12 * leftOf(PENSION), 2);
+        // What is left is what counts as put in, which matters on an ASK. The last day of the period is a payday as well.
+        expect(pass.ledger.deposits[model.stocks.findIndex((stock) => stock.id === 'a')]).toBeCloseTo(flow(pass, 'kept:payout:f'), 2);
+      });
+
+      it('counts a pension that is wired to nothing, so the others pay the higher rate', () => {
+        const boxes = [me(1980), flatG, national(), occupational(), withdrawal('w', 47, 1_000)];
+        const { pass } = run({ boxes, wires: [money('f', 'w')] }, 1);
+        expect(firstYear(pass, 'tax:pension')).toBeCloseTo(taxOn(2 * PENSION) / 2, 2);
+      });
+
+      it('gives the credit only while the old-age pension pays', () => {
+        const alone = run({ boxes: [me(1980), occupational(), withdrawal('w', 47, 1_000)], wires: [money('o', 'w')] }, 1);
+        expect(firstYear(alone.pass, 'tax:pension')).toBeCloseTo(taxOn(PENSION, false), 2);
+        const both = run({ boxes: [me(1980), flatG, national(), occupational(), withdrawal('w', 47, 1_000)], wires: [money('o', 'w'), money('f', 'w')] }, 1);
+        expect(firstYear(both.pass, 'tax:pension')).toBeCloseTo(taxOn(2 * PENSION), 2);
+      });
+
+      it('lowers the rate when a pension stops', () => {
+        const short = otp('o', { startAmount: PENSION * 24, payoutAge: 47, payoutYears: 2 });
+        const { pass } = run({ boxes: [me(1980), flatG, national(), short, withdrawal('w', 47, 1_000)], wires: [money('o', 'w'), money('f', 'w')] }, 4);
+        const taxes = pass.ledger.flows.get('tax:pension')!;
+        expect(taxes[0] / 12).toBeCloseTo(taxOn(2 * PENSION), 2);
+        expect(taxes[2] / 12).toBeCloseTo(taxOn(PENSION), 2);
+      });
+
+      it('keeps the books right with the tax in them', () => {
+        const boxes = [me(1980), flatG, national(), occupational(), account('a', 500_000), withdrawal('w', 47, 40_000)];
+        const { pass } = run({ boxes, wires: [money('f', 'w'), money('o', 'a'), money('a', 'w')] }, 3);
+        const paid = flow(pass, 'payout:f') + flow(pass, 'payout:o');
+        const kept = flow(pass, 'kept:payout:f') + flow(pass, 'kept:payout:o');
+        expect(kept + flow(pass, 'tax:pension')).toBeCloseTo(paid, 4);
+      });
     });
   });
 
@@ -1180,11 +1549,12 @@ describe('tax on a withdrawal', () => {
     });
 
     it('lets the pension count before tax, so tax on it does not make the accounts pay more', () => {
-      const pension = folketrygd('f', 2_000 * 12 * 20, { payoutAge: 47, divisor: 20 });
-      const boxes = [me(1980), flatG, account('a', 1_200_000), pension, withdrawal('w', 47, 0, { ...percent, pensionTax: 50 })];
+      const pension = folketrygd('f', 30_000 * 12 * 20, { payoutAge: 47, divisor: 20 });
+      const boxes = [me(1980), flatG, account('a', 12_000_000), pension, withdrawal('w', 47, 0, percent)];
       const { pass } = run({ boxes, wires: [money('f', 'w'), money('a', 'w')] }, 1);
-      expect(firstYear(pass, 'spent:accounts')).toBeCloseTo(10_000, 2);
-      expect(firstYear(pass, 'spent:pension')).toBeCloseTo(1_000, 2);
+      // 12 % of 12 million is 120 000 a month, and the pension covers 30 000 of it before tax.
+      expect(firstYear(pass, 'spent:accounts')).toBeCloseTo(90_000, 2);
+      expect(firstYear(pass, 'spent:pension')).toBeCloseTo(leftOf(30_000), 2);
     });
   });
 
@@ -1193,22 +1563,22 @@ describe('tax on a withdrawal', () => {
     const national = () => folketrygd('f', 30_000 * 12 * 20, { payoutAge: 47, divisor: 20 });
 
     it('shows what each box leaves after tax, and the tax on top', () => {
-      const boxes = [me(1980), flatG, account('a', 10_000_000), national(), withdrawal('w', 47, 40_000, { pensionTax: 24 })];
+      const boxes = [me(1980), flatG, account('a', 10_000_000), national(), withdrawal('w', 47, 40_000)];
       const shown = shownOf({ boxes, wires: [money('f', 'w'), money('a', 'w')] }, 2);
       const [pension, fund] = shown.sources;
-      expect(pension.perMonth[0]).toBeCloseTo(22_800, 0);
-      expect(fund.perMonth[0]).toBeCloseTo(17_200, 0);
+      expect(pension.perMonth[0]).toBeCloseTo(leftOf(30_000), 0);
+      expect(fund.perMonth[0]).toBeCloseTo(40_000 - leftOf(30_000), 0);
       expect(shown.need[0]).toBe(40_000);
-      expect(shown.tax[0]).toBeCloseTo(7_200, 0);
-      expect(shown.perMonthMax).toBeGreaterThanOrEqual(47_200);
+      expect(shown.tax[0]).toBeCloseTo(taxOn(30_000), 0);
+      expect(shown.perMonthMax).toBeGreaterThanOrEqual(40_000 + taxOn(30_000));
     });
 
     it('adds up the whole period', () => {
-      const boxes = [me(1980), flatG, account('a', 10_000_000), national(), withdrawal('w', 47, 40_000, { pensionTax: 24 })];
+      const boxes = [me(1980), flatG, account('a', 10_000_000), national(), withdrawal('w', 47, 40_000)];
       const shown = shownOf({ boxes, wires: [money('f', 'w'), money('a', 'w')] }, 2);
       // The day the period ends is a payday as well.
       expect(shown.withdrawn).toBeCloseTo(25 * 40_000, 0);
-      expect(shown.taxPaid).toBeCloseTo(25 * 7_200, 0);
+      expect(shown.taxPaid).toBeCloseTo(25 * taxOn(30_000), 0);
     });
 
     it('shows no tax on a regular account', () => {
@@ -1224,7 +1594,7 @@ describe('tax on a withdrawal', () => {
         ask('fund', 1_500_000, { taxRate: 37.84, shieldRate: 3.6 }),
         market('m', 3, 20),
         otp('o', { startAmount: 3_000_000, payoutAge: 50, payoutYears: 5 }),
-        withdrawal('w', 47, 30_000, { pensionTax: 24 }),
+        withdrawal('w', 47, 30_000),
       ];
       const wires = [influence('m', 'fund'), money('fund', 'w'), money('o', 'w'), money('w', 'fund')];
       const shown = shownOf({ boxes, wires }, 30);

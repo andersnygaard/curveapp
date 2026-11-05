@@ -96,6 +96,119 @@ export const TwoDates: Story = {
   },
 };
 
+const home: PlanLine = {
+  flow: 'housing',
+  change: 'starts',
+  from: 'Home',
+  to: null,
+  amount: 3_000_000,
+  lastAmount: 3_000_000,
+  every: 'once',
+  currency: 'NOK',
+  loan: 1_500_000,
+};
+
+const withHousing: Plan = {
+  ...plan,
+  dates: [
+    {
+      day: 0,
+      dateMs: Date.UTC(2030, 0, 1),
+      age: null,
+      lines: [home, { ...home, from: 'Cabin', amount: 800_000, lastAmount: 800_000, loan: 0 }],
+      balances: [],
+    },
+    {
+      day: 3650,
+      dateMs: Date.UTC(2040, 0, 1),
+      age: 50,
+      lines: [{ ...home, change: 'stops', loan: undefined }],
+      balances: [{ name: 'Fund', amount: 1_234_567, currency: 'NOK' }],
+    },
+  ],
+};
+
+export const Housing: Story = {
+  args: { plan: withHousing },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByText(/^Home is worth NOK\s?3,000,000, with a loan of NOK\s?1,500,000$/)).toBeVisible();
+    // Without a loan there is nothing to say about one.
+    await expect(canvas.getByText(/^Cabin is worth NOK\s?800,000$/)).toBeVisible();
+    await expect(canvas.getByText('The loan on Home is paid off')).toBeVisible();
+  },
+};
+
+export const HousingInNorwegian: Story = {
+  args: { plan: withHousing },
+  globals: { language: 'no' },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByText(/^Home er verdt 3\s000\s000\skr, med lån på 1\s500\s000\skr$/)).toBeVisible();
+    await expect(canvas.getByText(/^Cabin er verdt 800\s000\skr$/)).toBeVisible();
+    await expect(canvas.getByText('Lånet på Home er nedbetalt')).toBeVisible();
+  },
+};
+
+const wealthTaxLine = (flow: PlanLine['flow'], amount: number, lastAmount: number): PlanLine => ({
+  flow,
+  change: 'starts',
+  from: null,
+  to: null,
+  amount,
+  lastAmount,
+  every: 'yearly',
+  currency: 'NOK',
+});
+
+const withWealthTax: Plan = {
+  ...plan,
+  dates: [
+    {
+      day: 0,
+      dateMs: Date.UTC(2030, 11, 31),
+      age: null,
+      lines: [wealthTaxLine('wealthTax', 5_000, 61_000), wealthTaxLine('wealthTaxGain', 1_000, 20_000), wealthTaxLine('wealthTaxShort', 30_000, 58_000)],
+      balances: [{ name: 'Fund', amount: 1_234_567, currency: 'NOK' }],
+    },
+    {
+      day: 3650,
+      dateMs: Date.UTC(2040, 11, 31),
+      age: null,
+      lines: [
+        { ...wealthTaxLine('wealthTax', 5_000, 61_000), change: 'stops' },
+        { ...wealthTaxLine('wealthTaxShort', 30_000, 58_000), change: 'stops' },
+      ],
+      balances: [],
+    },
+  ],
+};
+
+export const WealthTax: Story = {
+  args: { plan: withWealthTax },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByText(/^Wealth tax is NOK\s?5,000.*61,000 a year$/)).toBeVisible();
+    await expect(canvas.getByText(/^Tax on gains to pay the wealth tax is NOK\s?1,000.*20,000 a year$/)).toBeVisible();
+    await expect(canvas.getByText(/^Wealth tax is short by NOK\s?30,000.*58,000 a year$/)).toHaveClass('plan-short');
+    await expect(canvas.getByText('Wealth tax stops')).toBeVisible();
+    await expect(canvas.getByText('Wealth tax is covered again')).not.toHaveClass('plan-short');
+  },
+};
+
+export const WealthTaxInNorwegian: Story = {
+  args: { plan: withWealthTax },
+  globals: { language: 'no' },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByText(/^Formuesskatt er 5\s000.*61\s000\skr i året$/)).toBeVisible();
+    await expect(canvas.getByText(/^Skatt på gevinst for å betale formuesskatten er /)).toBeVisible();
+    await expect(canvas.getByText(/^Formuesskatt mangler 30\s000.*58\s000\skr i året$/)).toHaveClass('plan-short');
+    await expect(canvas.getByText('Formuesskatt stopper')).toBeVisible();
+    await expect(canvas.getByText('Formuesskatt er dekket igjen')).toBeVisible();
+  },
+};
+
 export const ToAge: Story = {
   args: { plan: { ...plan, toAge: 95 } },
   play: async ({ canvasElement }) => {

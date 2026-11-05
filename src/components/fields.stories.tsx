@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { useState } from 'react';
 import { expect, fn, userEvent, within } from 'storybook/test';
-import { CheckField, DateField, NumberField, OptionalNumberField, SelectField, TextField } from './fields';
+import { DateField, NumberField, OptionalNumberField, SelectField, TextField } from './fields';
 
 type Args = { onChange: (value: unknown) => void };
 
@@ -108,18 +108,5 @@ export const Select: Story = {
     await userEvent.selectOptions(field, 'Yearly');
     await expect(field).toHaveValue('yearly');
     await expect(args.onChange).toHaveBeenLastCalledWith('yearly');
-  },
-};
-
-export const Check: Story = {
-  render: function Render(args) {
-    return <CheckField label="Stops when you stop working" {...useValue(true, args)} />;
-  },
-  play: async ({ canvasElement, args }) => {
-    const field = within(canvasElement).getByLabelText('Stops when you stop working');
-    await expect(field).toBeChecked();
-    await userEvent.click(field);
-    await expect(field).not.toBeChecked();
-    await expect(args.onChange).toHaveBeenLastCalledWith(false);
   },
 };

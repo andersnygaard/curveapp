@@ -1,4 +1,4 @@
-import type { KeyboardEvent } from 'react';
+import type { KeyboardEvent, ReactNode } from 'react';
 
 interface Props<Id extends string> {
   label: string;
@@ -7,7 +7,7 @@ interface Props<Id extends string> {
   onChange: (id: Id) => void;
 }
 
-// The panels are the caller's. Each tab points at panel-<id>.
+// Each tab points at panel-<id>, which is the TabPanel with the same id. Where the panels go is up to the caller.
 export default function Tabs<Id extends string>({ label, tabs, active, onChange }: Props<Id>) {
   function moveBetweenTabs(event: KeyboardEvent) {
     if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
@@ -41,5 +41,14 @@ export default function Tabs<Id extends string>({ label, tabs, active, onChange 
         </button>
       ))}
     </div>
+  );
+}
+
+// What a tab shows. It stays in the page when another tab is chosen, only hidden.
+export function TabPanel({ id, active, children }: { id: string; active: boolean; children: ReactNode }) {
+  return (
+    <section id={`panel-${id}`} className="panel" role="tabpanel" aria-labelledby={`tab-${id}`} hidden={!active}>
+      {children}
+    </section>
   );
 }

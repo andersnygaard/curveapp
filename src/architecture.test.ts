@@ -1,5 +1,6 @@
 // The dependency rule, checked. The engine knows nothing of the model, and neither knows anything of the screen.
 import { describe, expect, it } from 'vitest';
+import { BOX_TYPES } from './model/catalog';
 
 const sources = import.meta.glob<string>(['./engine/**/*.ts', './model/**/*.ts', '!**/*.test.ts'], {
   query: '?raw',
@@ -37,10 +38,14 @@ describe('the model', () => {
 });
 
 describe('the box types', () => {
-  it('have a file each, and the engine never names one', () => {
+  // 'income' is also a phase of the day, and 'g' is the id of the G factor, so the engine may write those two.
+  const named = BOX_TYPES.filter((type) => type !== 'income' && type !== 'g');
+
+  it('have a file each', () => {
     expect(filesIn('./model/boxes/').length).toBeGreaterThanOrEqual(10);
-    for (const file of filesIn('./engine/')) {
-      expect(sources[file]).not.toMatch(/'(transfer|budget|withdrawal|account)'/);
-    }
+  });
+
+  it.each(filesIn('./engine/'))('are never named in %s', (file) => {
+    for (const type of named) expect(sources[file]).not.toMatch(new RegExp(`['"\`]${type}['"\`]`));
   });
 });

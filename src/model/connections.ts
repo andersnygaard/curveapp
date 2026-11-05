@@ -8,6 +8,14 @@ export interface WireRequest {
   kind: WireKind;
 }
 
+// A wire is named by its ends and its kind, so the same wire drawn twice is one wire.
+export const wireOf = (source: string, target: string, kind: WireKind): Wire => ({
+  id: `${source}-${target}-${kind}`,
+  source,
+  target,
+  kind,
+});
+
 export function canConnect(boxes: Box[], { source, target, kind }: WireRequest): boolean {
   const from = boxes.find((box) => box.id === source);
   const to = boxes.find((box) => box.id === target);
@@ -30,5 +38,5 @@ export function connect(boxes: Box[], wires: Wire[], { source, target, kind }: W
         (takesOne && wire.target === target)
       ),
   );
-  return [...kept, { id: `${source}-${target}-${kind}`, source, target, kind }];
+  return [...kept, wireOf(source, target, kind)];
 }

@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
+import { translations } from '../i18n';
 import { BOX_TYPES, catalog } from './catalog';
-import { canConnect, connect } from './connections';
-import { freeSpot, overlaps } from './graph';
-import type { Box, BoxType, Wire, WireKind } from './types';
+import { canConnect, connect, wireOf } from './connections';
+import { connected, freeSpot, overlaps, settled } from './graph';
+import type { Box, BoxType, Graph, PlacedBox, Wire, WireKind } from './types';
 
 const box = (type: BoxType, id: string = type): Box => ({ id, type, data: {} }) as Box;
 const boxes = BOX_TYPES.map((type) => box(type));
@@ -19,6 +20,7 @@ describe('canConnect', () => {
     ['account', 'withdrawal', 'money'],
     ['otp', 'withdrawal', 'money'],
     ['folketrygd', 'withdrawal', 'money'],
+    ['income', 'withdrawal', 'money'],
     ['otp', 'account', 'money'],
     ['folketrygd', 'account', 'money'],
     ['withdrawal', 'account', 'money'],
@@ -38,7 +40,7 @@ describe('canConnect', () => {
     ['return', 'folketrygd', 'influence', 'it is regulated by law and has no market'],
     ['return', 'transfer', 'influence', 'only what holds value can grow'],
     ['return', 'account', 'money', 'a return moves no money'],
-    ['income', 'withdrawal', 'money', 'the budget has nothing to do with withdrawals'],
+    ['transfer', 'withdrawal', 'money', 'only an income goes straight to a withdrawal'],
     ['budget', 'withdrawal', 'money', 'the budget has nothing to do with withdrawals'],
     ['account', 'budget', 'money', 'the budget has nothing to do with withdrawals'],
     ['transfer', 'transfer', 'money', 'a chain has no use'],
@@ -59,6 +61,19 @@ describe('canConnect', () => {
     expect(catalog.g.gives).toBeUndefined();
     expect(catalog.me.takes).toBeUndefined();
     expect(catalog.me.gives).toBeUndefined();
+  });
+
+  it('leaves housing without connectors, and it can still be deleted', () => {
+    expect(catalog.housing.takes).toBeUndefined();
+    expect(catalog.housing.gives).toBeUndefined();
+    expect(catalog.housing.fixed).toBeUndefined();
+  });
+
+  it('leaves the wealth tax without connectors, and there is one that can be deleted', () => {
+    expect(catalog.wealthTax.takes).toBeUndefined();
+    expect(catalog.wealthTax.gives).toBeUndefined();
+    expect(catalog.wealthTax.fixed).toBeUndefined();
+    expect(catalog.wealthTax.onlyOne).toBe(true);
   });
 });
 
@@ -117,5 +132,50 @@ describe('connect', () => {
     const basis: Wire = { id: 'b', source: 'i1', target: 'o', kind: 'basis' };
     const wires = connect([...graph, box('otp', 'o')], [basis], { source: 'i1', target: 't1', kind: 'money' });
     expect(wires).toContainEqual(basis);
+  });
+
+  it('names the new wire by its ends and kind, as every other wire is named', () => {
+    expect(connect(graph, [], { source: 'i1', target: 't1', kind: 'money' })).toEqual([wireOf('i1', 't1', 'money')]);
+  });
+});
+
+describe('a settled drawing', () => {
+  const names = translations.en.defaultNames;
+  const placed = (type: BoxType, id: string = type): PlacedBox =>
+    ({ id, type, position: { x: 0, y: 0 }, data: catalog[type].defaults(names) }) as PlacedBox;
+  const typesIn = ({ boxes }: Graph) => boxes.map((item) => item.type);
+
+  it('gives back the same drawing when there is nothing to settle, so nothing restarts', () => {
+    const graph: Graph = { boxes: [placed('me'), placed('income', 'i'), placed('account', 'a')], wires: [wireOf('i', 'a', 'money')] };
+    expect(settled(graph, names)).toBe(graph);
+  });
+
+  it('adds the box for yourself when it is missing', () => {
+    expect(typesIn(settled({ boxes: [placed('account')], wires: [] }, names))).toEqual(['account', 'me']);
+  });
+
+  it('has G exactly while a box reads it', () => {
+    const readers = BOX_TYPES.filter((type) => catalog[type].readsG);
+    expect(readers).toEqual(['otp', 'folketrygd']);
+    for (const type of readers) expect(typesIn(settled({ boxes: [placed('me'), placed(type)], wires: [] }, names))).toContain('g');
+    expect(typesIn(settled({ boxes: [placed('me'), placed('g')], wires: [] }, names))).toEqual(['me']);
+  });
+
+  it('drops a wire that joins boxes that cannot be joined, or points at nothing', () => {
+    const graph = settled(
+      {
+        boxes: [placed('me'), placed('income', 'i'), placed('account', 'a'), placed('account', 'b')],
+        wires: [wireOf('i', 'a', 'money'), wireOf('a', 'b', 'money'), wireOf('gone', 'a', 'money')],
+      },
+      names,
+    );
+    expect(graph.wires).toEqual([wireOf('i', 'a', 'money')]);
+  });
+
+  it('wires with the same rules as connect', () => {
+    const graph: Graph = { boxes: [placed('income', 'i1'), placed('income', 'i2'), placed('transfer', 't')], wires: [wireOf('i1', 't', 'money')] };
+    const wired = connected(graph, { source: 'i2', target: 't', kind: 'money' });
+    expect(wired.wires).toEqual([wireOf('i2', 't', 'money')]);
+    expect(wired.boxes).toBe(graph.boxes);
   });
 });

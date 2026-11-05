@@ -1,6 +1,7 @@
-// General rules. Each is one thing that can happen in a day.
-import { OUTSIDE, type Rule } from './engine';
-import { shareLeaving, taxOnDraw } from './norway';
+// General rules. Each is one thing that can happen in a day. Where one needs Norwegian law, as settleGate does for the
+// tax on gain and on pension, it takes it from norway.ts.
+import { OUTSIDE, ROUNDING, type Rule, type World } from './engine';
+import { beforeDrawing, drawShare, PENSION_TAX_RATE, shareLeaving, type TaxedAccount } from './norway';
 import { DAYS_PER_YEAR } from './timeline';
 
 export function stepFactor(
@@ -26,7 +27,8 @@ export function marketStep(volatility: number, gaps: Float64Array) {
   return (value: number, day: number, shock: number) => value * Math.exp(volatility * Math.sqrt(gaps[day]) * shock);
 }
 
-// Returns build up every day and are paid out when the market moves, so 4 % means 4 % a year on any interval.
+// Returns build up every day and are paid out when the market moves, so 4 % means 4 % a year on any interval. The market
+// steps have no drift, so the rate given is the median, or geometric, rate, and the mean ends about half the variance higher.
 export function earnReturn(
   stock: number,
   annualRate: number,
@@ -97,6 +99,11 @@ export function moveBetween(
   };
 }
 
+// A payment from a stock that pays out, named by the id of the stock it was paid from.
+const PAYOUT = 'payout:';
+export const payoutOf = (stockId: string) => `${PAYOUT}${stockId}`;
+export const payoutSource = (label: string) => (label.startsWith(PAYOUT) ? label.slice(PAYOUT.length) : null);
+
 export interface PayoutOptions {
   stock: number;
   to: number;
@@ -131,99 +138,110 @@ export function payOutOverYears({ stock, to, payments, annualRate, fires, label 
 
 export type Need = { perMonth: number } | { yearlyShareOfAccounts: number };
 
-// The flows that say what a gate has needed, drawn from one account, passed on and not been able to pay.
-export const neededBy = (gate: number) => `need:${gate}`;
-export const drawnBy = (gate: number, stock: number) => `drawn:${gate}:${stock}`;
-export const passedOnBy = (gate: number) => `surplus:${gate}`;
-export const shortAt = (gate: number) => `short:${gate}`;
-export const taxPaidAt = (gate: number) => `tax:${gate}`;
+// What happens to money at a gate. The plan reads these, so they are part of what the engine says. What the gate spent of
+// what it received can be pension or income wired straight to it, since the gate cannot tell the two apart.
+export const SPENT_PENSION = 'spent:pension';
+export const SPENT_ACCOUNTS = 'spent:accounts';
+export const TAX_ON_GAIN = 'tax:gain';
+export const SURPLUS = 'surplus';
+export const UNMET = 'unmet';
 
-export interface Pull {
-  stock: number;
-  // 0 for an account without tax on its gain.
-  taxOnGain: number;
-}
+// The flows that say what a gate has needed, drawn from one account, passed on, not been able to pay and paid in tax.
+// They are only added up for the charts and never recorded, so the plan does not see them.
+export const needAt = (gate: number) => `need:${gate}`;
+export const drawnAt = (gate: number, stock: number) => `drawn:${gate}:${stock}`;
+export const surplusAt = (gate: number) => `surplus:${gate}`;
+export const shortAt = (gate: number) => `short:${gate}`;
+export const taxAt = (gate: number) => `tax:${gate}`;
+
+// The flows a gate adds to, named once when the rule is made and not each time it runs.
+const gateFlows = (gate: number, accounts: TaxedAccount[]) => ({
+  need: needAt(gate),
+  drawn: accounts.map(({ stock }) => drawnAt(gate, stock)),
+  surplus: surplusAt(gate),
+  short: shortAt(gate),
+  tax: taxAt(gate),
+});
 
 export interface GateOptions {
-  buffer: number;
-  pulls: Pull[];
-  overflow: number;
+  gate: number;
+  // The accounts it draws from when what it received is not enough.
+  accounts: TaxedAccount[];
+  // Where what is left over goes, or OUTSIDE when it counts as spent.
+  surplusTo: number;
   need: Need;
-  // The share of what the gate receives that goes to tax.
-  pensionTax: number;
   startDay: number;
   fires: Uint8Array;
   rank: number;
 }
 
-// What the gate received counts first, after tax. Any surplus flows on, and any shortfall is drawn from the accounts by
-// size. An amount is what should be left after tax, so more is drawn to pay the tax. A share of the accounts is what is
-// drawn, and the tax comes out of it. Before the start day there is no need, so pension paid early flows straight on.
-export function settleGate({ buffer, pulls, overflow, need, pensionTax, startDay, fires, rank }: GateOptions): Rule {
+// What the accounts hold together.
+const heldIn = ({ balances }: World, accounts: TaxedAccount[]) =>
+  accounts.reduce((sum, { stock }) => sum + balances[stock], 0);
+
+// The need in kroner a month. There is none before the start day. A share of the accounts waits until there is something
+// in them, since they may not have opened yet, and is then the same amount every month.
+function lockedNeed(need: Need, startDay: number, inAccounts: () => number): (day: number) => number {
+  let locked: number | undefined;
+  return (day) => {
+    if (day >= startDay && locked === undefined) {
+      if ('perMonth' in need) locked = need.perMonth;
+      else if (inAccounts() > 0) locked = (need.yearlyShareOfAccounts * inAccounts()) / 12;
+    }
+    return locked ?? 0;
+  };
+}
+
+// What the gate received pays for what is wanted, and the rest flows on. Returns what it covered.
+function spendReceived(world: World, gate: number, surplusTo: number, wanted: number, surplusFlow: string): number {
+  const received = world.balances[gate];
+  const covered = Math.min(received, wanted);
+  world.move(gate, OUTSIDE, covered, SPENT_PENSION);
+  if (received > covered) world.tally(surplusFlow, world.move(gate, surplusTo, received - covered, SURPLUS));
+  return covered;
+}
+
+// What the gate received counts first, and tax on pension has already been paid from it. Any surplus flows on, and any
+// shortfall is drawn from the accounts by size. An amount is what should be left after tax, so more is drawn to pay the tax.
+// A share of the accounts is what is drawn, and the tax comes out of it. Before the start day there is no need, so pension
+// paid early flows straight on.
+export function settleGate({ gate, accounts, surplusTo, need, startDay, fires, rank }: GateOptions): Rule {
   const afterTax = 'perMonth' in need;
+  const flows = gateFlows(gate, accounts);
   return {
     phase: 'draw',
     rank,
     fires,
     start(world) {
-      const { balances, ledger } = world;
-      const inAccounts = () => pulls.reduce((sum, { stock }) => sum + balances[stock], 0);
-      let lockedNeed: number | undefined;
-      // Pension can wait here for an account to open, and must not be taxed again each month.
-      let taxedIn = 0;
+      const needOn = lockedNeed(need, startDay, () => heldIn(world, accounts));
+      const pensionTax = world.factor(PENSION_TAX_RATE);
+      const fallsShortOn = [gate, ...accounts.map(({ stock }) => stock)];
       return (day) => {
-        // A share of the accounts waits until there is something in them, since they may not have opened yet.
-        if (day >= startDay && lockedNeed === undefined) {
-          if ('perMonth' in need) lockedNeed = need.perMonth;
-          else if (inAccounts() > 0) lockedNeed = (need.yearlyShareOfAccounts * inAccounts()) / 12;
-        }
-        const perMonth = lockedNeed ?? 0;
-
-        const paidIn = ledger.in[buffer] - taxedIn;
-        taxedIn = ledger.in[buffer];
-        world.tally(taxPaidAt(buffer), world.move(buffer, OUTSIDE, paidIn * pensionTax, 'tax:pension'));
-
-        const received = balances[buffer];
-        const wanted = afterTax ? perMonth : perMonth * (1 - pensionTax);
-        const covered = Math.min(received, wanted);
-        world.move(buffer, OUTSIDE, covered, 'spent:pension');
-        if (received > covered) world.tally(passedOnBy(buffer), world.move(buffer, overflow, received - covered, 'surplus'));
-
+        const perMonth = needOn(day);
+        // An amount is after tax. A share is before tax, so the tax on pension comes off it before what was received counts.
+        const wanted = afterTax ? perMonth : perMonth * (1 - pensionTax.value);
+        const covered = spendReceived(world, gate, surplusTo, wanted, flows.surplus);
         const shortfall = afterTax ? perMonth - covered : perMonth * (wanted > 0 ? 1 - covered / wanted : 1);
         let drawn = 0;
         let unmet = 0;
         if (shortfall > 0) {
-          const accounts = pulls.map(({ stock, taxOnGain }) => ({
-            balance: balances[stock],
-            // Shielding used earlier today is only taken off at the end of the day. Two gates on one account can
-            // therefore both count on it, the one month it runs out.
-            taxFree: ledger.deposits[stock] + ledger.shield[stock],
-            taxOnGain,
-          }));
-          const available = inAccounts();
-          const share = available <= 0 ? 0 : afterTax ? shareLeaving(accounts, shortfall) : Math.min(1, shortfall / available);
-          let beforeTax = 0;
-          pulls.forEach(({ stock }, index) => {
-            const { balance, taxFree, taxOnGain } = accounts[index];
-            const out = balance * share;
-            const tax = taxOnDraw(out, taxFree, taxOnGain);
-            const moved = world.move(stock, OUTSIDE, out - tax, 'spent:accounts');
-            world.tally(drawnBy(buffer, stock), moved);
-            world.tally(taxPaidAt(buffer), world.move(stock, OUTSIDE, tax, 'tax:gain'));
-            drawn += moved;
-            beforeTax += out;
+          const held = beforeDrawing(world, accounts);
+          const available = heldIn(world, accounts);
+          const share = available <= 0 ? 0 : afterTax ? shareLeaving(held, shortfall) : Math.min(1, shortfall / available);
+          const paid = drawShare(world, accounts, held, share, SPENT_ACCOUNTS, TAX_ON_GAIN, (index, spent, tax) => {
+            world.tally(flows.drawn[index], spent);
+            world.tally(flows.tax, tax);
           });
-          const missing = shortfall - (afterTax ? drawn : beforeTax);
-          if (missing > 0.005) {
+          drawn = paid.left;
+          const missing = shortfall - (afterTax ? paid.left : paid.beforeTax);
+          if (missing > ROUNDING) {
             unmet = missing;
-            world.record('unmet', unmet, buffer);
-            world.tally(shortAt(buffer), unmet);
-            ledger.short[buffer] += unmet;
-            for (const { stock } of pulls) ledger.short[stock] += unmet;
+            world.fallShort(UNMET, unmet, fallsShortOn, gate);
+            world.tally(flows.short, unmet);
           }
         }
         // A share of the accounts leaves whatever is left after tax, and that is what it has paid for.
-        world.tally(neededBy(buffer), afterTax ? perMonth : covered + drawn + unmet);
+        world.tally(flows.need, afterTax ? perMonth : covered + drawn + unmet);
       };
     },
   };

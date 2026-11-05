@@ -5,47 +5,69 @@ import type { Timeline } from './timeline';
 // Money coming into or leaving the model.
 export const OUTSIDE = -1;
 
-// The order of a day. Money arrives before anything is drawn, so the order of the boxes on the canvas never matters.
+// When less than this is missing, it is left over from rounding and not something that could not be paid.
+export const ROUNDING = 0.005;
+
+// The order of a day. A phase starts when the one before has finished, so money arrives before anything draws on it,
+// whatever order the boxes were drawn in.
+//   factors  random paths take their step: markets and G
+//   adjust   calculated balances follow G and earn
+//   growth   accounts earn their return
+//   income   pay and employer savings arrive
+//   payout   pensions are paid, and at rank 1 taxed together
+//   draw     what draws from an account goes after what fills it, by rank; at Infinity, what must count what is left
+//   close    bookkeeping that moves no money: shielding at rank -1, then deposits lose a day to inflation
 export type Phase = 'factors' | 'adjust' | 'growth' | 'income' | 'payout' | 'draw' | 'close';
 const PHASES: Phase[] = ['factors', 'adjust', 'growth', 'income', 'payout', 'draw', 'close'];
 
 export interface Stock {
   id: string;
   name: string;
-  unit: 'money' | 'notional';
+  // A calculated balance, such as an earned pension, is not money and is not part of the savings.
+  unit: 'money' | 'calculated';
   currency: string;
   opening: number;
   openDay: number;
   // The balance has no meaning after this day, so it is not drawn.
   closeDay?: number;
-  // Holds money on its way somewhere and gets no graph.
+  // Holds money on its way somewhere and gets no graph. Only a gate is hidden, so the plan and the statistics take a
+  // hidden stock to be a gate.
   hidden?: boolean;
   // A rule draws from it and can ask for more than there is.
-  canRunOut?: boolean;
+  mayFallShort?: boolean;
+  // Set for a stock taxed on its gain, even at a rate of 0, and only such a stock gets an after-tax figure and series for
+  // its deposits and shielding. Left out, there is no tax and none of them.
   taxOnGain?: number;
 }
 
-export interface Factor {
-  id: string;
+// Where a factor stands today and where it stood before its last step. Factors move first in the day, so every rule sees
+// today's step. A rule can also set one for the rules after it, like the tax rate on this month's pension.
+export interface FactorPath {
   value: number;
   previous: number;
 }
 
+export interface Factor extends FactorPath {
+  id: string;
+}
+
 export interface Rule {
   phase: Phase;
-  // Within a phase, lower ranks go first. A rule that draws from an account runs after the rules that fill it.
+  // Within a phase, lower ranks go first, and rules of the same rank keep the order they were added in. A rule that
+  // draws from an account runs after the rules that fill it.
   rank?: number;
   fires: Uint8Array;
   // Called once per pass, so a rule can keep its own state in the closure.
   start(world: World): (day: number) => void;
 }
 
-// What a gate is paid from, read from the ledger's flows. It moves no money, so it cannot change a result.
+// A gate is a stock that collects what is paid towards one need. Once a month it pays the need from what it received,
+// passes the rest on, and draws what is missing from the accounts. This says what a gate is paid from, read from the
+// ledger's flows. It moves no money, so it cannot change a result.
 export interface GateSources {
   gate: number;
-  // Each source is a label in the ledger's flows, in the order the sources stack. Where the flow is before tax, keeps
-  // says how much of it is left after tax.
-  sources: { name: string; label: string; keeps?: number }[];
+  // Each source is a label in the ledger's flows of what it pays after tax, in the order the sources stack.
+  sources: { name: string; label: string }[];
   // Where what is left over goes. Null when it counts as spent.
   surplusTo: string | null;
 }
@@ -69,17 +91,20 @@ export interface Ledger {
   growth: Float64Array;
   // What was asked for and could not be paid.
   short: Float64Array;
-  // What is left of what was put in. A withdrawal counts as deposits first.
+  // What is left of what was put in, and the shielding from tax that has not been used against a gain yet. Both follow
+  // the rules of an aksjesparekonto: the opening balance is all deposits, and a withdrawal counts as deposits first.
+  // They mean nothing for a stock without tax on its gain.
   deposits: Float64Array;
-  // Shielding from tax that has not been used against a gain yet.
   shield: Float64Array;
   // The first regular payment from each stock.
   firstPayout: Float64Array;
-  // Money per label and calendar year.
+  // Amounts per label and calendar year. Most are money that moved; need and kept are not.
   flows: Map<string, Float64Array>;
 }
 
-// One recorded amount. A move says where it came from and went. What could not be paid names the stock that asked.
+// What happened in a pass: a move, or something asked for that could not be paid. plan.ts builds the written plan from
+// these, so the labels are what the engine tells it. A move says where it came from and went. What could not be paid
+// names the stock that asked.
 export interface Recorded {
   day: number;
   from: number;
@@ -88,6 +113,7 @@ export interface Recorded {
   label: string;
 }
 
+// Hears what happens in a pass, in the order it happens. It only listens, so it cannot change a result.
 export type Observer = (recorded: Recorded) => void;
 
 export class World {
@@ -98,7 +124,7 @@ export class World {
   day = 0;
   private readonly model: Model;
   private readonly observe?: Observer;
-  private readonly paths = new Map<string, { value: number; previous: number }>();
+  private readonly paths = new Map<string, FactorPath>();
 
   constructor(model: Model, noise: NoiseSource, observe?: Observer) {
     const count = model.stocks.length;
@@ -120,8 +146,11 @@ export class World {
     for (const { id, value, previous } of model.factors) this.paths.set(id, { value, previous });
   }
 
-  factor(id: string) {
-    return this.paths.get(id)!;
+  // A rule asks for its factors when it starts, so a factor the model never declared is found before the first day.
+  factor(id: string): FactorPath {
+    const path = this.paths.get(id);
+    if (!path) throw new Error(`The model has no factor ${id}`);
+    return path;
   }
 
   open(stock: number) {
@@ -136,7 +165,8 @@ export class World {
     if (from !== OUTSIDE && !this.isOpen[from]) return 0;
     const moved = from === OUTSIDE ? amount : Math.min(amount, this.balances[from]);
     if (from !== OUTSIDE && moved < amount) this.ledger.short[from] += amount - moved;
-    if (moved <= 0) return 0;
+    // Written so that an amount that is not a number moves nothing either, and cannot spoil a balance.
+    if (!(moved > 0)) return 0;
     if (from !== OUTSIDE) {
       this.balances[from] -= moved;
       this.ledger.out[from] += moved;
@@ -163,13 +193,20 @@ export class World {
     if (amount > 0 && this.ledger.firstPayout[stock] === 0) this.ledger.firstPayout[stock] = amount;
   }
 
-  record(label: string, amount: number, from = OUTSIDE, to = OUTSIDE) {
+  // What was asked for and could not be paid. It counts against every stock that could have paid it, and is reported
+  // like a move, from the stock that asked.
+  fallShort(label: string, amount: number, stocks: readonly number[], asking = OUTSIDE) {
+    for (const stock of stocks) this.ledger.short[stock] += amount;
+    this.record(label, amount, asking);
+  }
+
+  private record(label: string, amount: number, from = OUTSIDE, to = OUTSIDE) {
     this.tally(label, amount);
     this.observe?.({ day: this.day, from, to, amount, label });
   }
 
-  // Adds to a flow without reporting it as something that happened, for what is recorded under another label or is not
-  // money that moves.
+  // Adds to a flow that is not something that happened: a need, what a pension keeps after tax, or a gate's part of a
+  // move recorded under another label.
   tally(label: string, amount: number) {
     let flow = this.ledger.flows.get(label);
     if (!flow) {
@@ -180,21 +217,26 @@ export class World {
   }
 }
 
+// Some arrays here have one value per stock, in the order of Model.stocks, and some have one per chart, in the order of
+// Model.charted. Each field says which.
 export interface PassResult {
-  // One series per charted stock, one value per sample. NaN where the stock does not exist.
+  // One series per chart, one value per sample. NaN where the stock does not exist.
   series: Float64Array[];
+  // One value per stock in each of its arrays, and one per calendar year in each of its flows.
   ledger: Ledger;
+  // One per stock: the balance on the last day.
   closing: Float64Array;
-  // Deposits at the last sample, measured at the same moment as the balance.
+  // One per stock: deposits at the last sample, measured at the same moment as the balance.
   depositsAtEnd: Float64Array;
   // The same for shielding.
   shieldAtEnd: Float64Array;
-  // One per charted stock with tax on its gain and null for the others, one value per sample. NaN where the balance is.
+  // One per chart, for a stock with tax on its gain and null for the others, one value per sample. NaN where the balance is.
   deposits: (Float64Array | null)[];
   shield: (Float64Array | null)[];
 }
 
-export function orderRules(rules: Rule[]): Rule[] {
+// The sort is stable, so rules of the same phase and rank keep the order they were added in.
+function orderRules(rules: Rule[]): Rule[] {
   return PHASES.flatMap((phase) =>
     rules.filter((rule) => rule.phase === phase).sort((a, b) => (a.rank ?? 0) - (b.rank ?? 0)),
   );
@@ -203,7 +245,8 @@ export function orderRules(rules: Rule[]): Rule[] {
 export function runPass(model: Model, noise: NoiseSource, observe?: Observer): PassResult {
   const { stocks, sampleDays, timeline, charted } = model;
   const world = new World(model, noise, observe);
-  const rules = model.rules.map((rule) => ({ fires: rule.fires, fire: rule.start(world) }));
+  // The engine puts the day in order itself, so a model built anywhere keeps money arriving before it is drawn.
+  const rules = orderRules(model.rules).map((rule) => ({ fires: rule.fires, fire: rule.start(world) }));
   const series = charted.map(() => new Float64Array(sampleDays.length).fill(NaN));
   const depositsAtEnd = new Float64Array(stocks.length);
   const shieldAtEnd = new Float64Array(stocks.length);

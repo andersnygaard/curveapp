@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { shareLeaving, taxOnDraw } from './norway';
 import { OUTSIDE, runPass, World, type Model, type Stock } from './engine';
 import { moveBetween } from './rules';
 import { noNoise, passNoise } from './random';
@@ -32,42 +31,6 @@ const stock = (id: string, extra: Partial<Stock> = {}): Stock => ({
 });
 
 const count = (fires: Uint8Array) => fires.reduce((sum, value) => sum + value, 0);
-
-describe('the share of the accounts that leaves an amount after tax', () => {
-  const account = (balance: number, taxFree = balance, taxOnGain = 0) => ({ balance, taxFree, taxOnGain });
-
-  it('is the plain share when nothing is taxed', () => {
-    expect(shareLeaving([account(1_000), account(3_000)], 1_000)).toBe(0.25);
-  });
-
-  it('stays the plain share until the tax starts', () => {
-    expect(shareLeaving([account(1_000, 500, 0.5)], 500)).toBe(0.5);
-  });
-
-  it('draws more once the tax has started', () => {
-    // 500 is free. The next 100 needs 200 before tax.
-    expect(shareLeaving([account(1_000, 500, 0.5)], 600)).toBeCloseTo(0.7, 10);
-  });
-
-  it('works through accounts that start to pay tax at different points', () => {
-    const accounts = [account(1_000, 200, 0.5), account(1_000, 600, 0.25)];
-    const share = shareLeaving(accounts, 1_000);
-    const left = accounts.reduce((sum, { balance, taxFree, taxOnGain }) => {
-      const out = balance * share;
-      return sum + out - taxOnDraw(out, taxFree, taxOnGain);
-    }, 0);
-    expect(left).toBeCloseTo(1_000, 8);
-  });
-
-  it('is everything when they cannot pay it', () => {
-    expect(shareLeaving([account(1_000, 0, 0.5)], 600)).toBe(1);
-  });
-
-  it('copes with an empty account and with tax that takes it all', () => {
-    expect(shareLeaving([account(0, 0, 0.5), account(1_000)], 500)).toBe(0.5);
-    expect(shareLeaving([account(1_000, 0, 1)], 500)).toBe(1);
-  });
-});
 
 describe('Observing a pass', () => {
   const fires = new Timeline(START, 730).fires({ every: 'monthly' });
@@ -169,6 +132,20 @@ describe('World.move', () => {
     w.move(OUTSIDE, 0, 10, 'x');
     expect(w.ledger.flows.get('x')![1]).toBe(10);
   });
+
+  it('moves nothing when the amount is not a number', () => {
+    const w = world(stock('a'), stock('b'));
+    expect(w.move(0, 1, NaN, 'x')).toBe(0);
+    expect(w.move(OUTSIDE, 1, NaN, 'x')).toBe(0);
+    expect(Array.from(w.balances)).toEqual([1000, 1000]);
+    expect(w.ledger.flows.has('x')).toBe(false);
+  });
+});
+
+describe('World.factor', () => {
+  it('says which factor the model does not have', () => {
+    expect(() => new World(modelOf([stock('a')]), noNoise).factor('market')).toThrow('market');
+  });
 });
 
 describe('World.grow', () => {
@@ -208,7 +185,7 @@ describe('runPass', () => {
 
 describe('summarize', () => {
   const timeline = new Timeline(START, 10);
-  const model: Model = { ...modelOf([stock('a', { canRunOut: true })], timeline), sampleDays: [0, 5, 10] };
+  const model: Model = { ...modelOf([stock('a', { mayFallShort: true })], timeline), sampleDays: [0, 5, 10] };
   const pass = (values: number[], short = 0) => ({
     series: [Float64Array.from(values)],
     ledger: { in: new Float64Array(1), out: new Float64Array(1), growth: new Float64Array(1), short: Float64Array.of(short), deposits: new Float64Array(1), shield: new Float64Array(1), firstPayout: new Float64Array(1), flows: new Map() },
@@ -229,21 +206,51 @@ describe('summarize', () => {
     }
   });
 
+  it('leaves a tenth and a quarter of the passes outside each edge of the bands', () => {
+    const results = Array.from({ length: 21 }, (_, index) => pass([1, index * 100, 1]));
+    const { spread } = summarize(model, results).stocks[0];
+    expect(spread.p10[1]).toBe(200);
+    expect(spread.p25[1]).toBe(500);
+    expect(spread.p75[1]).toBe(1500);
+    expect(spread.p90[1]).toBe(1800);
+  });
+
+  it('puts a share that falls between two passes between their values', () => {
+    const results = [0, 100, 200, 300].map((value) => pass([1, value, 1]));
+    const { spread } = summarize(model, results).stocks[0];
+    expect(spread.p25[1]).toBeCloseTo(75, 9);
+    expect(spread.p90[1]).toBeCloseTo(270, 9);
+  });
+
+  it('has no band where a line has stopped', () => {
+    const { spread } = summarize(model, [pass([1, 2, NaN]), pass([3, 4, NaN])]).stocks[0];
+    expect(spread.p10[1]).toBeCloseTo(2.2, 9);
+    expect(Number.isNaN(spread.p10[2])).toBe(true);
+    expect(Number.isNaN(spread.p90[2])).toBe(true);
+  });
+
   it('counts the share of passes where nothing was missing', () => {
     const results = [pass([1, 1, 1]), pass([1, 1, 0], 50), pass([1, 1, 1]), pass([1, 1, 1])];
     expect(summarize(model, results).stocks[0].heldShare).toBe(0.75);
   });
 
-  it('scales to the highest point of a pass and not to where it ends', () => {
+  it('scales to the highest point of the band and not to where it ends', () => {
     const results = Array.from({ length: 20 }, (_, index) => pass([100 + index, 1000 + index, 0]));
-    const { yMax, lastValue } = summarize(model, results).stocks[0];
+    const { yMax, lastValue, spread } = summarize(model, results).stocks[0];
     expect(lastValue).toBe(0);
-    expect(yMax).toBeGreaterThan(1000);
+    expect(yMax).toBeGreaterThan(spread.p90[1]);
   });
 
-  it('keeps the median readable when the fan gets very wide', () => {
-    const results = Array.from({ length: 19 }, (_, index) => pass([1, 100 + index * 1000, 1])).concat(pass([1, 100_000, 1]));
-    const { yMax, median } = summarize(model, results).stocks[0];
+  it('does not let one lucky pass decide the scale', () => {
+    const steady = Array.from({ length: 19 }, () => pass([1, 1000, 1]));
+    const { yMax } = summarize(model, [...steady, pass([1, 3000, 1])]).stocks[0];
+    expect(yMax).toBeLessThan(1500);
+  });
+
+  it('keeps the median readable when the band gets very wide', () => {
+    const results = Array.from({ length: 21 }, (_, index) => pass([1, index < 12 ? 100 : 100_000, 1]));
+    const { yMax, median, spread } = summarize(model, results).stocks[0];
+    expect(spread.p90[1]).toBeGreaterThan(yMax);
     expect(yMax).toBeLessThanOrEqual(4 * median[1] * 1.05);
   });
 
