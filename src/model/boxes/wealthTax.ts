@@ -29,7 +29,7 @@ export const wealthTaxSpec: BoxSpec<WealthTaxBox> = {
     const homes = context.allOf('housing');
     const { allowance, rate, highFrom, highRate } = box.data;
     // Without a home the tax is a small part of what the accounts hold, so it can only fall short when there is one.
-    if (homes.length > 0) for (const account of accounts) context.markCanRunOut(context.stockOf(account));
+    if (homes.length > 0) for (const account of accounts) context.markMayFallShort(context.stockOf(account));
     context.addRule(
       payWealthTax({
         rates: {

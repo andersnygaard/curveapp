@@ -1,5 +1,5 @@
 // Norwegian pension rules, as plain formulas and rules on top of the general engine. All the law lives here.
-import { OUTSIDE, type Rule } from './engine';
+import { OUTSIDE, ROUNDING, type Ledger, type Rule, type World } from './engine';
 import { DAYS_PER_YEAR } from './timeline';
 
 export const G = 'g';
@@ -86,6 +86,9 @@ export interface DepositOptions {
   fires: Uint8Array;
 }
 
+// What the employer pays into an occupational pension.
+export const OTP_DEPOSIT = 'otp:deposit';
+
 // Each payment of an income deposits its share of the year's savings. The employer pays, so salary is untouched.
 export function otpDeposit({ stock, lowRate, highRate, salary, share, baseG, fires }: DepositOptions): Rule {
   return {
@@ -97,7 +100,7 @@ export function otpDeposit({ stock, lowRate, highRate, salary, share, baseG, fir
         const pay = salaryAt(salary(day), g.value, baseG);
         const low = Math.min(pay, SAVINGS_LOW_CAP_IN_G * g.value);
         const upToHighCap = Math.min(pay, SAVINGS_HIGH_CAP_IN_G * g.value);
-        world.move(OUTSIDE, stock, (lowRate * low + highRate * (upToHighCap - low)) * share(day), 'otp:deposit');
+        world.move(OUTSIDE, stock, (lowRate * low + highRate * (upToHighCap - low)) * share(day), OTP_DEPOSIT);
       };
     },
   };
@@ -164,6 +167,9 @@ export function taxOnPension(perYear: number, hasCredit: boolean): number {
 // The share of this month's pension that goes to tax, for the rules that need to know how much of it is left.
 export const PENSION_TAX_RATE = 'pensionTaxRate';
 
+// The tax on pension, taken from where the pension went.
+export const TAX_ON_PENSION = 'tax:pension';
+
 // What is left of a pension's payments after tax.
 export const keptOf = (label: string) => `kept:${label}`;
 
@@ -180,6 +186,7 @@ export interface TaxedPension {
 // The tax is per person, so it is worked out on all pensions together, as if this month's pay lasted the whole year. Each
 // pension then pays its part where its money went. Money that has left the model has no tax to take, but it still counts.
 export function taxPensions(pensions: TaxedPension[], yearOf: (day: number) => number, fires: Uint8Array): Rule {
+  const kept = pensions.map(({ label }) => keptOf(label));
   return {
     phase: 'payout',
     rank: 1,
@@ -204,10 +211,10 @@ export function taxPensions(pensions: TaxedPension[], yearOf: (day: number) => n
         });
         const rate = perMonth > 0 ? taxOnPension(perMonth * 12, hasCredit) / (perMonth * 12) : 0;
         taxRate.value = rate;
-        pensions.forEach(({ label, to, taxShownAs }, index) => {
-          world.tally(keptOf(label), paid[index] * (1 - rate));
+        pensions.forEach(({ to, taxShownAs }, index) => {
+          world.tally(kept[index], paid[index] * (1 - rate));
           if (to === OUTSIDE) return;
-          const tax = world.move(to, OUTSIDE, paid[index] * rate, 'tax:pension');
+          const tax = world.move(to, OUTSIDE, paid[index] * rate, TAX_ON_PENSION);
           if (taxShownAs) world.tally(taxShownAs, tax);
         });
       };
@@ -220,6 +227,14 @@ export function estimatedDivisor(age: number): number {
   return Math.max(1, 85 - age);
 }
 
+// An account that can be drawn on, with the tax on its gain.
+export interface TaxedAccount {
+  stock: number;
+  // 0 for an account without tax on its gain.
+  taxOnGain: number;
+}
+
+// What an account holds just before it is drawn on.
 export interface DrawnAccount {
   balance: number;
   // What can be drawn before any of it counts as a gain.
@@ -230,6 +245,13 @@ export interface DrawnAccount {
 // A withdrawal from an aksjesparekonto counts as deposits first and then as shielding, and only what goes beyond them is
 // a gain. So the first withdrawals are free of tax, and the tax comes later.
 export const taxOnDraw = (drawn: number, taxFree: number, taxOnGain: number) => taxOnGain * Math.max(0, drawn - taxFree);
+
+// What an aksjesparekonto can pay out before any of it is a gain: what is left of the deposits, then the shielding.
+export const taxFreeOf = (ledger: Ledger, stock: number) => ledger.deposits[stock] + ledger.shield[stock];
+
+// What a balance would leave after the tax on its gain, if it were all taken out.
+export const afterTaxOf = (balance: number, deposits: number, shield: number, taxOnGain: number) =>
+  balance - taxOnGain * Math.max(0, balance - deposits - shield);
 
 // The share of every account to draw so that what is left after tax is the amount asked for, or 1 if they cannot pay
 // it. What is left grows in a straight line until an account starts to pay tax, so the answer is found without guessing.
@@ -250,6 +272,38 @@ export function shareLeaving(accounts: DrawnAccount[], amount: number): number {
     growth -= slowsBy;
   }
   return growth > 0 ? Math.min(1, share + (amount - left) / growth) : 1;
+}
+
+// What each account holds before anything is drawn, so every account is drawn from the same picture. Shielding used
+// earlier today is only taken off at the end of the day, so two draws on one account can both count on it, the one month
+// it runs out.
+export const beforeDrawing = ({ balances, ledger }: World, accounts: TaxedAccount[]): DrawnAccount[] =>
+  accounts.map(({ stock, taxOnGain }) => ({ balance: balances[stock], taxFree: taxFreeOf(ledger, stock), taxOnGain }));
+
+// Draws the same share of every account, and takes the tax on the gain out of what is drawn. What is left after tax and
+// the tax go under a label each. Returns what was left after tax and what was drawn before it, added up account by account.
+export function drawShare(
+  world: World,
+  accounts: TaxedAccount[],
+  held: DrawnAccount[],
+  share: number,
+  label: string,
+  taxLabel: string,
+  drew?: (index: number, left: number, tax: number) => void,
+): { left: number; beforeTax: number } {
+  let left = 0;
+  let beforeTax = 0;
+  accounts.forEach(({ stock }, index) => {
+    const { balance, taxFree, taxOnGain } = held[index];
+    const out = balance * share;
+    const tax = taxOnDraw(out, taxFree, taxOnGain);
+    const paid = world.move(stock, OUTSIDE, out - tax, label);
+    const taxed = world.move(stock, OUTSIDE, tax, taxLabel);
+    drew?.(index, paid, taxed);
+    left += paid;
+    beforeTax += out;
+  });
+  return { left, beforeTax };
 }
 
 interface ShieldOptions {
@@ -365,7 +419,7 @@ export const taxOnWealth = (wealth: number, { allowance, rate, highFrom, highRat
 
 export interface WealthTaxOptions {
   rates: WealthRates;
-  accounts: { stock: number; holdsFunds: boolean; taxOnGain: number }[];
+  accounts: (TaxedAccount & { holdsFunds: boolean })[];
   homes: { kind: HomeKind; value: number; loanOn: (day: number) => number }[];
   fires: Uint8Array;
 }
@@ -379,37 +433,26 @@ export function payWealthTax({ rates, accounts, homes, fires }: WealthTaxOptions
     rank: Infinity,
     fires,
     start(world) {
-      const { balances, ledger } = world;
-      const held = (holdsFunds: boolean) =>
+      const { balances } = world;
+      const inAccounts = (holdsFunds: boolean) =>
         accounts.reduce((sum, account) => sum + (account.holdsFunds === holdsFunds ? balances[account.stock] : 0), 0);
+      const accountStocks = accounts.map(({ stock }) => stock);
       return (day) => {
         const tax = taxOnWealth(
           taxableWealth({
-            funds: held(true),
-            cash: held(false),
+            funds: inAccounts(true),
+            cash: inAccounts(false),
             homes: homes.map(({ kind, value, loanOn }) => ({ kind, value, loan: loanOn(day) })),
           }),
           rates,
         );
         if (tax <= 0) return;
-        const drawn = accounts.map(({ stock, taxOnGain }) => ({
-          balance: balances[stock],
-          taxFree: ledger.deposits[stock] + ledger.shield[stock],
-          taxOnGain,
-        }));
-        const share = shareLeaving(drawn, tax);
-        let paid = 0;
-        accounts.forEach(({ stock }, index) => {
-          const { balance, taxFree, taxOnGain } = drawn[index];
-          const out = balance * share;
-          const onGain = taxOnDraw(out, taxFree, taxOnGain);
-          paid += world.move(stock, OUTSIDE, out - onGain, WEALTH_TAX);
-          world.move(stock, OUTSIDE, onGain, WEALTH_TAX_GAIN);
-        });
-        const missing = tax - paid;
-        if (missing <= 0.005) return;
-        world.record(WEALTH_TAX_SHORT, missing);
-        for (const { stock } of accounts) ledger.short[stock] += missing;
+        const held = beforeDrawing(world, accounts);
+        const share = shareLeaving(held, tax);
+        const paid = drawShare(world, accounts, held, share, WEALTH_TAX, WEALTH_TAX_GAIN);
+        const missing = tax - paid.left;
+        if (missing <= ROUNDING) return;
+        world.fallShort(WEALTH_TAX_SHORT, missing, accountStocks);
       };
     },
   };

@@ -1,6 +1,6 @@
 // What an income pays and how long it lasts, read by the boxes that an income is wired to.
 import { OUTSIDE } from '../../engine/engine';
-import { taxPaidAt } from '../../engine/rules';
+import { payoutOf, taxAt } from '../../engine/rules';
 import type { CompileContext, GraphQuery } from '../spec';
 import type { Box, FolketrygdBox, IncomeBox, OtpBox } from '../types';
 
@@ -16,8 +16,10 @@ export function incomesOf(boxes: Box[]): IncomeBox[] {
   return boxes.filter((box): box is IncomeBox => box.type === 'income');
 }
 
-// The flow an income's payments to a box are recorded under.
+// The flow an income's payments to a box are recorded under, and the income that such a flow came from.
 export const incomeLabel = (income: IncomeBox, target: Box) => `${income.id}:${target.id}`;
+export const incomeOfLabel = (label: string, boxes: Box[]) =>
+  incomesOf(boxes).find((income) => label.startsWith(`${income.id}:`));
 
 // The first day with this income and the first day without it. An empty age leaves that end open, and so does an age
 // without a birth year to count from.
@@ -42,15 +44,18 @@ export function salaryFrom(boxes: Box[], context: CompileContext): (day: number)
   return (day) => incomes.reduce((sum, income) => (income.runs(day) ? sum + income.basis : sum), 0);
 }
 
-// Tax on pension is per person and not per box, so a pension only says what it pays under and where the money goes.
-export function addTaxedPension(pension: OtpBox | FolketrygdBox, label: string, context: CompileContext) {
+// Tax on pension is per person and not per box, so a pension only says what it pays under, where the money goes and
+// whether it gives the credit. Returns the flow to pay it under, so the payout and its tax read the same one.
+export function addTaxedPension(pension: OtpBox | FolketrygdBox, givesCredit: boolean, context: CompileContext): string {
+  const label = payoutOf(pension.id);
   const target = context.outOf(pension, 'money')[0];
   context.addPension({
     label,
     to: target ? context.stockOf(target) : OUTSIDE,
-    taxShownAs: target?.type === 'withdrawal' ? taxPaidAt(context.stockOf(target)) : undefined,
-    givesCredit: pension.type === 'folketrygd',
+    taxShownAs: target?.type === 'withdrawal' ? taxAt(context.stockOf(target)) : undefined,
+    givesCredit,
   });
+  return label;
 }
 
 // What a payment has left after the fixed transfers.

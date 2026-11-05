@@ -38,7 +38,7 @@ export const folketrygdSpec: BoxSpec<FolketrygdBox> = {
     const { name, startAmount, startDate } = pension.data;
     context.addStock(pension, {
       name,
-      unit: 'notional',
+      unit: 'calculated',
       currency: 'NOK',
       opening: Math.max(0, startAmount),
       openDay: context.timeline.dayOf(validDate(startDate)),
@@ -72,14 +72,15 @@ export const folketrygdSpec: BoxSpec<FolketrygdBox> = {
 
     if (closeDay === undefined || payoutAge === null) return;
     const target = context.outOf(pension, 'money')[0];
-    addTaxedPension(pension, `payout:${pension.id}`, context);
+    // The old-age pension is the one pension that gives the credit for pension income.
+    const label = addTaxedPension(pension, true, context);
     context.addRule(
       payFolketrygd(
         stock,
         target ? context.stockOf(target) : OUTSIDE,
         divisorOf(pension, payoutAge),
         timeline.fires({ every: 'monthly', from: closeDay }),
-        `payout:${pension.id}`,
+        label,
       ),
     );
   },

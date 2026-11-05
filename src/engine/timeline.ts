@@ -38,12 +38,16 @@ export class Timeline {
   readonly startMs: number;
   readonly days: number;
   private readonly firings = new Map<string, Uint8Array>();
+  private years?: Uint16Array;
 
   constructor(startMs: number, days: number) {
     this.startMs = startMs;
     this.days = days;
   }
 
+  // A box date is a calendar date written as 'YYYY-MM-DD', which Date.parse reads as midnight UTC. All the arithmetic
+  // here is in UTC too, so no day is 23 or 25 hours long. The rounding in dayOfMs takes care of a date read in local
+  // time, which is off by less than half a day.
   dayOf(date: string): number {
     return this.dayOfMs(Date.parse(date));
   }
@@ -56,8 +60,15 @@ export class Timeline {
     return new Date(this.startMs + day * DAY_MS);
   }
 
-  // Calendar years since the start, so a year of monthly payments always holds twelve of them.
+  // Calendar years since the start, so a year of monthly payments always holds twelve of them. Every recorded amount
+  // asks for it, so it is worked out once for the whole period.
   yearIndex(day: number): number {
+    if (day < 0 || day > this.days) return this.yearOf(day);
+    this.years ??= Uint16Array.from({ length: this.days + 1 }, (_, at) => this.yearOf(at));
+    return this.years[day];
+  }
+
+  private yearOf(day: number): number {
     return this.dateOf(day).getUTCFullYear() - this.dateOf(0).getUTCFullYear();
   }
 

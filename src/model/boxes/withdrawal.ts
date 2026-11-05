@@ -1,6 +1,6 @@
 import { OUTSIDE } from '../../engine/engine';
 import { keptOf } from '../../engine/norway';
-import { drawnBy, settleGate, type Need } from '../../engine/rules';
+import { drawnAt, payoutOf, settleGate, type Need } from '../../engine/rules';
 import type { BoxSpec, CompileContext, DiagnosticCode } from '../spec';
 import { MANY } from '../spec';
 import { drawRank } from '../query';
@@ -36,8 +36,8 @@ const isSource = (box: Box): box is Source => (STACKING as string[]).includes(bo
 // The flow of what a source pays after tax. An account can feed several gates, so its flow is per gate. Income is already
 // after tax, so what it pays is what it moves.
 function paidBy(box: Source, gate: WithdrawalBox, context: CompileContext): string {
-  if (box.type === 'account') return drawnBy(context.stockOf(gate), context.stockOf(box));
-  return box.type === 'income' ? incomeLabel(box, gate) : keptOf(`payout:${box.id}`);
+  if (box.type === 'account') return drawnAt(context.stockOf(gate), context.stockOf(box));
+  return box.type === 'income' ? incomeLabel(box, gate) : keptOf(payoutOf(box.id));
 }
 
 function sourcesOf(gate: WithdrawalBox, context: CompileContext) {
@@ -64,27 +64,27 @@ export const withdrawalSpec: BoxSpec<WithdrawalBox> = {
       openDay: 0,
       hidden: true,
       // It can only fall short once it has started, and only if that happens within the period.
-      canRunOut: startDay !== null && startDay <= context.timeline.days,
+      mayFallShort: startDay !== null && startDay <= context.timeline.days,
     });
   },
   build(gate, context) {
     const startDay = context.dayOfAge(gate.data.startAge);
     if (startDay === null) return;
-    const pulls = context
+    const accounts = context
       .into(gate, 'money')
       .flatMap((box) => (box.type === 'account' ? [{ stock: context.stockOf(box), taxOnGain: taxOnGainOf(box) }] : []));
-    if (startDay <= context.timeline.days) pulls.forEach(({ stock }) => context.markCanRunOut(stock));
-    const overflow = context.outOf(gate, 'money')[0];
+    if (startDay <= context.timeline.days) accounts.forEach(({ stock }) => context.markMayFallShort(stock));
+    const surplusTo = context.outOf(gate, 'money')[0];
     context.addGateSources({
       gate: context.stockOf(gate),
       sources: sourcesOf(gate, context),
-      surplusTo: overflow?.type === 'account' ? overflow.data.name : null,
+      surplusTo: surplusTo?.type === 'account' ? surplusTo.data.name : null,
     });
     context.addRule(
       settleGate({
-        buffer: context.stockOf(gate),
-        pulls,
-        overflow: overflow ? context.stockOf(overflow) : OUTSIDE,
+        gate: context.stockOf(gate),
+        accounts,
+        surplusTo: surplusTo ? context.stockOf(surplusTo) : OUTSIDE,
         need: needOf(gate),
         startDay,
         fires: context.timeline.fires({ every: 'monthly' }),

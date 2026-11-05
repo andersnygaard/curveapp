@@ -1,7 +1,7 @@
 // What many passes add up to. The median, the bands, the share that holds and the scale are all read from real passes.
 import type { Model, PassResult } from './engine';
-import { WEALTH_TAX, WEALTH_TAX_GAIN } from './norway';
-import { neededBy, passedOnBy, shortAt, taxPaidAt } from './rules';
+import { afterTaxOf, WEALTH_TAX, WEALTH_TAX_GAIN } from './norway';
+import { needAt, shortAt, surplusAt, taxAt } from './rules';
 import type { Timeline } from './timeline';
 
 const SPREAD_SHARES = [0.1, 0.25, 0.5, 0.75, 0.9];
@@ -32,7 +32,7 @@ export interface StockSummary {
   // The last value on the line, and the day it stops if it stops early.
   lastValue: number;
   closeDay: number | null;
-  // The share of passes where everything asked of this stock was paid. Null if nothing can run out.
+  // The share of passes where everything asked of this stock was paid. Null if it cannot fall short.
   heldShare: number | null;
   afterTax: number | null;
   payoutPerYear: number | null;
@@ -66,7 +66,8 @@ export interface WithdrawalSummary {
   // It belongs to no gate, so the first one shows it from the year it starts. The tax on gains to pay it is part of tax.
   wealthTax: Float64Array;
   surplusTo: string | null;
-  // All that the sources have paid over the whole period after tax, and the tax on top of it.
+  // All that the sources have paid over the whole period after tax, and the tax on top of it. These are said in words,
+  // so they are medians like the other figures.
   withdrawn: number;
   taxPaid: number;
   perMonthMax: number;
@@ -162,10 +163,9 @@ function medianAfterTax(model: Model, results: PassResult[], stock: number, char
   if (taxOnGain === undefined) return null;
   const last = model.sampleDays.length - 1;
   const value = medianOf(
-    Float64Array.from(results, (result) => {
-      const end = result.series[chart][last];
-      return end - taxOnGain * Math.max(0, end - result.depositsAtEnd[stock] - result.shieldAtEnd[stock]);
-    }),
+    Float64Array.from(results, (result) =>
+      afterTaxOf(result.series[chart][last], result.depositsAtEnd[stock], result.shieldAtEnd[stock], taxOnGain),
+    ),
   );
   return Number.isNaN(value) ? null : value;
 }
@@ -185,31 +185,41 @@ function calendarYears(timeline: Timeline) {
   return { edges, months };
 }
 
-function summarizeWithdrawal(model: Model, results: PassResult[], index: number, showsWealthTax: boolean, earlier?: Summary): WithdrawalSummary {
+type CalendarYears = ReturnType<typeof calendarYears>;
+
+function summarizeWithdrawal(
+  model: Model,
+  results: PassResult[],
+  index: number,
+  { edges, months }: CalendarYears,
+  showsWealthTax: boolean,
+  earlier?: Summary,
+): WithdrawalSummary {
   const { gate, sources, surplusTo } = model.gateSources[index];
   const { id, name, currency } = model.stocks[gate];
-  const { edges, months } = calendarYears(model.timeline);
   const flowOf = (result: PassResult, label: string) => result.ledger.flows.get(label);
-  const perMonthOf = (label: string) =>
-    Float64Array.from(months, (paydays, year) =>
-      paydays > 0 ? (results.reduce((sum, result) => sum + (flowOf(result, label)?.[year] ?? 0), 0)) / results.length / paydays : 0,
-    );
-  const allOf = (flow?: Float64Array) => flow?.reduce((all, amount) => all + amount, 0) ?? 0;
+  // A pass's amount in a calendar year, as a mean over the passes, so the layers add up.
+  const meanIn = (label: string, year: number) =>
+    results.reduce((sum, result) => sum + (flowOf(result, label)?.[year] ?? 0), 0) / results.length;
+  // Paid with the monthly payments, so spread over the paydays the calendar year has.
+  const perPayday = (label: string) =>
+    Float64Array.from(months, (paydays, year) => (paydays > 0 ? meanIn(label, year) / paydays : 0));
+  const totalOf = (flow?: Float64Array) => flow?.reduce((all, amount) => all + amount, 0) ?? 0;
 
   const paying = sources
-    .map(({ name: sourceName, label }, slot): WithdrawalSource => ({ name: sourceName, slot, perMonth: perMonthOf(label) }))
+    .map(({ name: sourceName, label }, slot): WithdrawalSource => ({ name: sourceName, slot, perMonth: perPayday(label) }))
     .filter((source) => peak(source.perMonth) > 0);
-  const need = perMonthOf(neededBy(gate));
-  const shows = (year: number) => showsWealthTax && need[year] > 0;
+  const need = perPayday(needAt(gate));
+  // The wealth tax belongs to no gate. The first one that is paid anything shows it, while it needs something.
+  const showsWealthTaxIn = (year: number) => showsWealthTax && need[year] > 0;
   // Paid once a year, so a twelfth of it whatever the calendar year has room for, also the first year that may be short.
-  const twelfthOf = (label: string) =>
-    Float64Array.from(need, (_, year) =>
-      shows(year) ? results.reduce((sum, result) => sum + (flowOf(result, label)?.[year] ?? 0), 0) / results.length / 12 : 0,
-    );
-  const wealthTax = twelfthOf(WEALTH_TAX);
-  const gainOnWealthTax = twelfthOf(WEALTH_TAX_GAIN);
-  const tax = perMonthOf(taxPaidAt(gate)).map((amount, year) => amount + gainOnWealthTax[year]);
-  const shownOf = (flow?: Float64Array) => flow?.reduce((all, amount, year) => all + (shows(year) ? amount : 0), 0) ?? 0;
+  const perTwelfth = (label: string) =>
+    Float64Array.from(need, (_, year) => (showsWealthTaxIn(year) ? meanIn(label, year) / 12 : 0));
+  const wealthTax = perTwelfth(WEALTH_TAX);
+  const gainOnWealthTax = perTwelfth(WEALTH_TAX_GAIN);
+  const tax = perPayday(taxAt(gate)).map((amount, year) => amount + gainOnWealthTax[year]);
+  const totalWhileShown = (flow?: Float64Array) =>
+    flow?.reduce((all, amount, year) => all + (showsWealthTaxIn(year) ? amount : 0), 0) ?? 0;
   const highest = months.map((_, year) =>
     Math.max(paying.reduce((sum, source) => sum + source.perMonth[year], 0), need[year]) + tax[year] + wealthTax[year],
   );
@@ -221,20 +231,23 @@ function summarizeWithdrawal(model: Model, results: PassResult[], index: number,
     yearEdges: edges,
     sources: paying,
     need,
-    surplus: perMonthOf(passedOnBy(gate)),
-    short: perMonthOf(shortAt(gate)),
+    surplus: perPayday(surplusAt(gate)),
+    short: perPayday(shortAt(gate)),
     tax,
     wealthTax,
     surplusTo,
     withdrawn: medianOf(
       Float64Array.from(results, (result) =>
-        sources.reduce((sum, { label }) => sum + allOf(flowOf(result, label)), 0),
+        sources.reduce((sum, { label }) => sum + totalOf(flowOf(result, label)), 0),
       ),
     ),
     taxPaid: medianOf(
       Float64Array.from(
         results,
-        (result) => allOf(flowOf(result, taxPaidAt(gate))) + shownOf(flowOf(result, WEALTH_TAX)) + shownOf(flowOf(result, WEALTH_TAX_GAIN)),
+        (result) =>
+          totalOf(flowOf(result, taxAt(gate))) +
+          totalWhileShown(flowOf(result, WEALTH_TAX)) +
+          totalWhileShown(flowOf(result, WEALTH_TAX_GAIN)),
       ),
     ),
     perMonthMax:
@@ -246,7 +259,7 @@ function summarizeWithdrawal(model: Model, results: PassResult[], index: number,
 export function summarize(model: Model, results: PassResult[], earlier?: Summary): Summary {
   const samples = model.sampleDays.length;
   const stocks = model.charted.map((stock, chart): StockSummary => {
-    const { id, name, currency, unit, canRunOut, closeDay, taxOnGain } = model.stocks[stock];
+    const { id, name, currency, unit, mayFallShort, closeDay, taxOnGain } = model.stocks[stock];
     const seriesOf: SeriesOf = (result) => result.series[chart];
     const [p10, p25, median, p75, p90] = percentileSeries(results, seriesOf, samples, SPREAD_SHARES);
     const taxed = taxOnGain !== undefined;
@@ -256,7 +269,7 @@ export function summarize(model: Model, results: PassResult[], earlier?: Summary
       id,
       name,
       currency,
-      calculated: unit === 'notional',
+      calculated: unit === 'calculated',
       median,
       spread: { p10, p25, p75, p90 },
       yMax:
@@ -264,7 +277,7 @@ export function summarize(model: Model, results: PassResult[], earlier?: Summary
         Math.max(scaleOf(p90, median), Math.max(peak(deposits ?? []), peak(shield ?? [])) * SCALE_MARGIN),
       lastValue: lastFinite(median),
       closeDay: closeDay ?? null,
-      heldShare: canRunOut ? shareHeld(results, stock) : null,
+      heldShare: mayFallShort ? shareHeld(results, stock) : null,
       afterTax: medianAfterTax(model, results, stock, chart),
       payoutPerYear: medianPayout(results, stock),
       deposits,
@@ -272,12 +285,13 @@ export function summarize(model: Model, results: PassResult[], earlier?: Summary
     };
   });
   const gates = model.stocks.flatMap((stock, index): GateSummary[] =>
-    stock.hidden && stock.canRunOut ? [{ id: stock.id, name: stock.name, heldShare: shareHeld(results, index) }] : [],
+    stock.hidden && stock.mayFallShort ? [{ id: stock.id, name: stock.name, heldShare: shareHeld(results, index) }] : [],
   );
+  const years = calendarYears(model.timeline);
   // A gate that nothing pays gets no chart, so the first one that does shows the wealth tax.
   const withdrawals: WithdrawalSummary[] = [];
   model.gateSources.forEach((_, index) => {
-    const withdrawal = summarizeWithdrawal(model, results, index, withdrawals.length === 0, earlier);
+    const withdrawal = summarizeWithdrawal(model, results, index, years, withdrawals.length === 0, earlier);
     if (withdrawal.sources.length > 0) withdrawals.push(withdrawal);
   });
   return { passes: results.length, stocks, gates, withdrawals };

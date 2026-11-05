@@ -236,6 +236,31 @@ describe('the tax in the plan', () => {
   });
 });
 
+describe('a transfer between two accounts in the plan', () => {
+  const savings: Box = {
+    id: 'b',
+    type: 'account',
+    data: { name: 'Savings', startAmount: 0, startDate: START, currency: 'NOK', accountType: 'regular', taxRate: 0, inflation: 0, shieldRate: 0, unusedShield: 0 },
+  };
+  const named = (name: string, id = 't'): Box => ({ id, type: 'transfer', data: { name, amount: 1_000, interval: 'monthly' } });
+  const linesOf = (transfers: Box[]) =>
+    planOf({
+      boxes: [me(), account(), savings, ...transfers],
+      wires: transfers.flatMap((transfer) => [money('a', transfer.id), money(transfer.id, 'b')]),
+    }).dates.flatMap((date) => date.lines);
+
+  it.each(['tax: car', 'wealth:tax'])('a transfer named like a tax is still a move, here %s', (name) => {
+    const lines = linesOf([named(name)]);
+    expect([...new Set(lines.map(({ flow }) => flow))]).toEqual(['opening', 'move']);
+    expect(lines.find((line) => line.flow === 'move')).toMatchObject({ change: 'starts', from: 'Fund', to: 'Savings', amount: 1_000 });
+  });
+
+  it('gives two transfers with the same name a line each', () => {
+    const starts = linesOf([named('Saving'), named('Saving', 'u')]).filter((line) => line.flow === 'move' && line.change === 'starts');
+    expect(starts.map(({ amount }) => amount)).toEqual([1_000, 1_000]);
+  });
+});
+
 describe('housing in the plan', () => {
   const home = (loan = 1_000_000, paidOff = '2040-06-01', value = 3_000_000, id = 'h', name = 'Home'): Box => ({
     id,

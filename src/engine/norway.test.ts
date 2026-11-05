@@ -1,5 +1,41 @@
 import { describe, expect, it } from 'vitest';
-import { taxableWealth, taxOnPension, taxOnWealth } from './norway';
+import { shareLeaving, taxableWealth, taxOnDraw, taxOnPension, taxOnWealth } from './norway';
+
+describe('the share of the accounts that leaves an amount after tax', () => {
+  const account = (balance: number, taxFree = balance, taxOnGain = 0) => ({ balance, taxFree, taxOnGain });
+
+  it('is the plain share when nothing is taxed', () => {
+    expect(shareLeaving([account(1_000), account(3_000)], 1_000)).toBe(0.25);
+  });
+
+  it('stays the plain share until the tax starts', () => {
+    expect(shareLeaving([account(1_000, 500, 0.5)], 500)).toBe(0.5);
+  });
+
+  it('draws more once the tax has started', () => {
+    // 500 is free. The next 100 needs 200 before tax.
+    expect(shareLeaving([account(1_000, 500, 0.5)], 600)).toBeCloseTo(0.7, 10);
+  });
+
+  it('works through accounts that start to pay tax at different points', () => {
+    const accounts = [account(1_000, 200, 0.5), account(1_000, 600, 0.25)];
+    const share = shareLeaving(accounts, 1_000);
+    const left = accounts.reduce((sum, { balance, taxFree, taxOnGain }) => {
+      const out = balance * share;
+      return sum + out - taxOnDraw(out, taxFree, taxOnGain);
+    }, 0);
+    expect(left).toBeCloseTo(1_000, 8);
+  });
+
+  it('is everything when they cannot pay it', () => {
+    expect(shareLeaving([account(1_000, 0, 0.5)], 600)).toBe(1);
+  });
+
+  it('copes with an empty account and with tax that takes it all', () => {
+    expect(shareLeaving([account(0, 0, 0.5), account(1_000)], 500)).toBe(0.5);
+    expect(shareLeaving([account(1_000, 0, 1)], 500)).toBe(1);
+  });
+});
 
 const share = (perYear: number) => taxOnPension(perYear, true) / perYear;
 

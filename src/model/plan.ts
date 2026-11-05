@@ -1,10 +1,13 @@
 // The written plan: what starts, changes and stops on which date, read from one pass without random shocks.
-// It reads what the engine moved, so it cannot say anything else than what the simulation does.
+// It reads what the engine moved, so it cannot say anything else than what the simulation does. The flows it knows are
+// named where the engine makes them, in rules.ts and norway.ts.
 import { OUTSIDE, runPass, type Recorded, type Stock } from '../engine/engine';
-import { WEALTH_TAX, WEALTH_TAX_GAIN, WEALTH_TAX_SHORT } from '../engine/norway';
+import { OTP_DEPOSIT, TAX_ON_PENSION, WEALTH_TAX, WEALTH_TAX_GAIN, WEALTH_TAX_SHORT } from '../engine/norway';
 import { noNoise } from '../engine/random';
+import { payoutSource, SURPLUS, TAX_ON_GAIN, UNMET } from '../engine/rules';
 import type { Timeline } from '../engine/timeline';
 import { loanOn, valueOf } from './boxes/housing';
+import { incomeOfLabel } from './boxes/pay';
 import { compile, DEFAULT_YEARS, hasStocks, LAST_AGE, yearsToAge } from './compile';
 import { assumptionsOf } from './query';
 import type { Box, SimulationInput } from './types';
@@ -62,8 +65,6 @@ export interface Plan {
   toAge: number | null;
 }
 
-const PAYOUT_PREFIX = 'payout:';
-const TAX_PREFIX = 'tax:';
 const FLOW_ORDER: PlanFlow[] = ['opening', 'housing', 'deposit', 'pensionDeposit', 'pension', 'withdrawal', 'tax', 'wealthTax', 'wealthTaxGain', 'surplus', 'move', 'unmet', 'wealthTaxShort'];
 // Worked out from what the accounts hold, so the amount moves every year without anything having been decided. That is one
 // line for as long as it lasts, from all the accounts together, and not a new one each year.
@@ -109,23 +110,20 @@ interface FlowRun {
 }
 
 function flowOf({ from, to, label }: Recorded, stocks: Stock[]): PlanFlow | null {
-  if (label.startsWith(TAX_PREFIX)) return 'tax';
+  if (label === TAX_ON_GAIN || label === TAX_ON_PENSION) return 'tax';
   if (from !== OUTSIDE && stocks[from].hidden) {
-    if (label === 'unmet') return 'unmet';
+    if (label === UNMET) return 'unmet';
     // What the pension covers is already said by the lines for each pension.
-    return label === 'surplus' ? 'surplus' : null;
+    return label === SURPLUS ? 'surplus' : null;
   }
-  if (label.startsWith(PAYOUT_PREFIX)) return 'pension';
-  if (from === OUTSIDE) return label === 'otp:deposit' ? 'pensionDeposit' : 'deposit';
+  if (payoutSource(label) !== null) return 'pension';
+  if (from === OUTSIDE) return label === OTP_DEPOSIT ? 'pensionDeposit' : 'deposit';
   return to === OUTSIDE ? 'withdrawal' : 'move';
 }
 
 function sourceOf(flow: PlanFlow, { from, label }: Recorded, stocks: Stock[], boxes: Box[]): string | null {
-  if (flow === 'pension') return stocks.find((stock) => stock.id === label.slice(PAYOUT_PREFIX.length))?.name ?? null;
-  if (flow === 'deposit') {
-    const income = boxes.find((box) => box.type === 'income' && label.startsWith(`${box.id}:`));
-    return income?.type === 'income' ? income.data.name : null;
-  }
+  if (flow === 'pension') return stocks.find((stock) => stock.id === payoutSource(label))?.name ?? null;
+  if (flow === 'deposit') return incomeOfLabel(label, boxes)?.data.name ?? null;
   return from === OUTSIDE ? null : stocks[from].name;
 }
 

@@ -52,7 +52,7 @@ export interface CompileContext extends GraphQuery {
   addGateSources(sources: GateSources): void;
   addPension(pension: TaxedPension): void;
   stockOf(box: Box): number;
-  markCanRunOut(stock: number): void;
+  markMayFallShort(stock: number): void;
   // The day an age begins, or null without a birth year. Age is the year minus the birth year.
   dayOfAge(age: number): number | null;
 }

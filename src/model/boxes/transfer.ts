@@ -23,9 +23,11 @@ export const transferSpec: BoxSpec<TransferBox> = {
     if (!source || !target || !drawsFromAccount(source) || source === target) return;
     const from = context.stockOf(source);
     const fires = context.timeline.fires({ every: transfer.data.interval });
-    context.markCanRunOut(from);
+    context.markMayFallShort(from);
     const amount = Math.max(0, transfer.data.amount);
-    context.addRule(moveBetween(from, context.stockOf(target), amount, fires, transfer.data.name, drawRank(transfer, context)));
+    // The flow is named by the box and never by what is written on it, so a name cannot be read as tax or pension.
+    const label = `transfer:${transfer.id}`;
+    context.addRule(moveBetween(from, context.stockOf(target), amount, fires, label, drawRank(transfer, context)));
   },
   check(transfer, query): DiagnosticCode[] {
     const source = query.into(transfer, 'money')[0];

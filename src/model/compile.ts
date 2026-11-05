@@ -1,5 +1,5 @@
 // Turns what the user drew into what the engine runs. No rule about money or pensions lives here.
-import { orderRules, type Factor, type GateSources, type Model, type Rule, type Stock } from '../engine/engine';
+import type { Factor, GateSources, Model, Rule, Stock } from '../engine/engine';
 import { G, G_REGULATION_DATE, nextG, PENSION_TAX_RATE, taxPensions, type TaxedPension } from '../engine/norway';
 import { stepFactor } from '../engine/rules';
 import { DAYS_PER_YEAR, Timeline } from '../engine/timeline';
@@ -74,8 +74,8 @@ export function compile(input: SimulationInput, years: number): Model {
       pensions.push(pension);
     },
     stockOf: (box) => stockIndex.get(box.id)!,
-    markCanRunOut(stock) {
-      stocks[stock].canRunOut = true;
+    markMayFallShort(stock) {
+      stocks[stock].mayFallShort = true;
     },
     // Half a year means the first of July, so an age can be given to the month.
     dayOfAge(age) {
@@ -104,7 +104,7 @@ export function compile(input: SimulationInput, years: number): Model {
     ...shown.filter((index) => stocks[index].unit !== 'money'),
   ];
 
-  return { timeline, stocks, factors, rules: orderRules(rules), sampleDays: sampleDaysFor(timeline.days), charted, gateSources, random };
+  return { timeline, stocks, factors, rules, sampleDays: sampleDaysFor(timeline.days), charted, gateSources, random };
 }
 
 export function diagnose(input: SimulationInput): Diagnostic[] {

@@ -48,7 +48,8 @@ function buildPayout(otp: OtpBox, context: CompileContext) {
   const target = context.outOf(otp, 'money')[0];
   // A payout that began before the simulation has already used some of its term.
   const monthsGone = fromDay < 0 ? Math.round((-fromDay / DAYS_PER_YEAR) * 12) : 0;
-  addTaxedPension(otp, `payout:${otp.id}`, context);
+  // Only the old-age pension gives the credit.
+  const label = addTaxedPension(otp, false, context);
   context.addRule(
     payOutOverYears({
       stock: context.stockOf(otp),
@@ -56,7 +57,7 @@ function buildPayout(otp: OtpBox, context: CompileContext) {
       payments: Math.round(Math.max(1, otp.data.payoutYears) * 12) - monthsGone,
       annualRate: market?.type === 'return' ? annualRateOf(market) : 0,
       fires: context.timeline.fires({ every: 'monthly', from: fromDay }),
-      label: `payout:${otp.id}`,
+      label,
     }),
   );
 }
