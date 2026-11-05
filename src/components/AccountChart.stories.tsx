@@ -15,6 +15,10 @@ function colourOf(canvas: HTMLCanvasElement, name: string): number[] {
   return [0, 2, 4].map((at) => parseInt(hex.slice(at, at + 2), 16));
 }
 
+// The faintest edge of a letter. Below this the colour is rounded away in storage, and on Linux it can come out as any
+// colour at all, so such pixels say nothing. A band is far stronger, at about 56.
+const FAINTEST = 8;
+
 // --curve is the colour only the bands have, and they are see-through.
 function curvePixels(canvas: HTMLCanvasElement, fromShare: number, toShare: number): number {
   const CURVE = colourOf(canvas, '--curve');
@@ -23,7 +27,7 @@ function curvePixels(canvas: HTMLCanvasElement, fromShare: number, toShare: numb
   const { data } = canvas.getContext('2d')!.getImageData(left, 0, width, canvas.height);
   let count = 0;
   for (let at = 0; at < data.length; at += 4) {
-    if (data[at + 3] > 0 && CURVE.every((value, channel) => Math.abs(data[at + channel] - value) < 40)) count++;
+    if (data[at + 3] > FAINTEST && CURVE.every((value, channel) => Math.abs(data[at + channel] - value) < 40)) count++;
   }
   return count;
 }
