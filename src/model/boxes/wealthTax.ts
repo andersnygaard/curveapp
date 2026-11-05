@@ -1,6 +1,7 @@
 import { payWealthTax, WEALTH_DATE } from '../../engine/norway';
 import type { BoxSpec } from '../spec';
 import type { WealthTaxBox } from '../types';
+import { shareOf } from '../values';
 import { taxOnGainOf } from './account';
 import { loanOn, valueOf } from './housing';
 
@@ -34,9 +35,9 @@ export const wealthTaxSpec: BoxSpec<WealthTaxBox> = {
       payWealthTax({
         rates: {
           allowance: Math.max(0, allowance),
-          rate: Math.max(0, rate) / 100,
+          rate: shareOf(rate),
           highFrom: Math.max(0, highFrom),
-          highRate: Math.max(0, highRate) / 100,
+          highRate: shareOf(highRate),
         },
         accounts: accounts.map((account) => ({
           stock: context.stockOf(account),

@@ -1,9 +1,10 @@
 import { earnShield, SHIELD_DATE } from '../../engine/norway';
 import { deflateDeposits } from '../../engine/rules';
 import { today, validDate } from '../dates';
-import type { BoxSpec, CompileContext } from '../spec';
+import type { BoxSpec } from '../spec';
 import { MANY } from '../spec';
 import type { AccountBox } from '../types';
+import { shareOf } from '../values';
 
 const DEFAULT_TAX_ON_GAIN = 37.84;
 const DEFAULT_INFLATION = 2.5;
@@ -24,8 +25,8 @@ export type AccountData = {
 };
 
 // Only an ASK has tax on its gain here, and a regular account pays none when it is drawn on.
-export const taxOnGainOf = ({ data }: AccountBox) => (data.accountType === 'ask' ? Math.min(100, Math.max(0, data.taxRate)) / 100 : 0);
-const inflationOf = ({ data }: AccountBox) => Math.max(-50, data.inflation) / 100;
+export const taxOnGainOf = ({ data }: AccountBox) => (data.accountType === 'ask' ? Math.min(1, shareOf(data.taxRate)) : 0);
+const inflationOf = ({ data }: AccountBox) => shareOf(data.inflation, -50);
 
 export const accountSpec: BoxSpec<AccountBox> = {
   defaults: (names) => ({
@@ -45,7 +46,8 @@ export const accountSpec: BoxSpec<AccountBox> = {
   },
   gives: { money: MANY },
   holds: true,
-  declare(account, context: CompileContext) {
+  startsOn: ({ data }) => validDate(data.startDate),
+  declare(account, context) {
     const { name, startAmount, startDate, currency, accountType } = account.data;
     context.addStock(account, {
       name,
@@ -53,6 +55,8 @@ export const accountSpec: BoxSpec<AccountBox> = {
       currency,
       opening: Math.max(0, startAmount),
       openDay: context.timeline.dayOf(validDate(startDate)),
+      // Left out for a regular account. Set, even to 0, it also gives the account an after-tax figure and lines for its
+      // deposits and shielding.
       taxOnGain: accountType === 'ask' ? taxOnGainOf(account) : undefined,
     });
   },
@@ -61,7 +65,7 @@ export const accountSpec: BoxSpec<AccountBox> = {
     context.addRule(
       earnShield({
         stock: context.stockOf(account),
-        annualRate: Math.max(0, account.data.shieldRate) / 100,
+        annualRate: shareOf(account.data.shieldRate),
         annualInflation: inflationOf(account),
         opening: Math.max(0, account.data.unusedShield),
         yearEnds: context.timeline.fires({ annually: SHIELD_DATE }),

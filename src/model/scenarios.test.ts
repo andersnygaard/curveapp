@@ -9,7 +9,7 @@ import type { BudgetData } from './boxes/budget';
 import type { IncomeData } from './boxes/income';
 import { catalog } from './catalog';
 import { assumptionsOf } from './query';
-import { compile, diagnose, yearsToAge } from './compile';
+import { compile, diagnose, startMsOf, yearsToAge } from './compile';
 import { wireOf } from './graph';
 import type { Box, SimulationInput, Wire } from './types';
 
@@ -99,6 +99,14 @@ describe('income is money', () => {
     expect(diagnose(input)).toEqual([{ boxId: 'i', code: 'transfersExceedIncome' }]);
   });
 
+  it('still warns when transfers are too large, whatever a negative transfer beside them says', () => {
+    const input = {
+      boxes: [income('i', 1_000), transfer('t1', 30_000), transfer('t2', -30_000), account('a')],
+      wires: [money('i', 't1'), money('t1', 'a'), money('i', 't2'), money('t2', 'a')],
+    };
+    expect(diagnose(input)).toEqual([{ boxId: 'i', code: 'transfersExceedIncome' }]);
+  });
+
   it('can go straight to an account, and then the rest goes there', () => {
     const { end } = run(
       {
@@ -160,6 +168,18 @@ describe('budget', () => {
     );
     closeTo(end('a'), 10_000 * 12, 0.01);
     expect(end('c')).toBe(10_000 * 12);
+  });
+
+  it('counts a negative transfer as nothing, since it moves nothing', () => {
+    const outcome = (amount: number) => {
+      const input = {
+        boxes: [income('i', 30_000), transfer('t', amount), budget('b', 20_000), account('a'), account('c')],
+        wires: [money('i', 't'), money('t', 'c'), money('i', 'b'), money('b', 'a')],
+      };
+      return { saved: run(input, 1).end('a'), warnings: diagnose(input) };
+    };
+    expect(outcome(-5_000)).toEqual(outcome(0));
+    closeTo(outcome(-5_000).saved, 10_000 * 12, 0.01);
   });
 
   it('lets the other income carry the budget when one stops', () => {
@@ -803,6 +823,19 @@ describe('an account that opens after the period', () => {
     const boxes = [account('early'), account('late', 100, { startDate: '2090-01-01', accountType: 'ask', taxRate: 30, inflation: 0 })];
     const { summary } = [...simulate(compile({ boxes, wires: [] }, 3))][0];
     expect(summary.stocks[1].afterTax).toBeNull();
+  });
+});
+
+describe('the day the simulation starts', () => {
+  it('is the first start date of an account, OTP or pension', () => {
+    const boxes = [account('a'), otp('o', { startDate: '2026-06-01' }), folketrygd('f', 0, { startDate: '2026-09-01' })];
+    expect(startMsOf({ boxes, wires: [] })).toBe(Date.parse('2026-06-01'));
+  });
+
+  it('is not moved by a start date left on another kind of box, as a file edited by hand can have', () => {
+    const salary = income('i', 10_000);
+    const stray = { ...salary, data: { ...salary.data, startDate: '2001-01-01' } } as Box;
+    expect(startMsOf({ boxes: [stray, account('a')], wires: [money('i', 'a')] })).toBe(Date.parse(START));
   });
 });
 

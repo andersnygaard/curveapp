@@ -1,11 +1,22 @@
-// How boxes saved by earlier versions of the app are brought up to date. Stored data must keep working, and a
-// stored pension figure must never change meaning without the user knowing. Unknown fields are left out by
-// the next step, which fills in defaults.
-import { overlaps, wireOf } from './graph';
+// How boxes saved by earlier versions of the app are brought up to date, one step per version. Stored data must keep
+// working, and a stored pension figure must never change meaning without the user knowing. A step changes only what it
+// names. Missing fields get their defaults when the file is read, and a field no version knows is kept and saved again.
 import type { PlacedBox, Wire, WireKind, XYPosition } from './types';
 
 const PAYMENTS_PER_YEAR: Record<string, number> = { weekly: 52, monthly: 12, quarterly: 4, yearly: 1 };
 const RETURN_BOX_SPACE = 320;
+
+// Copies of what the canvas used when these steps were written. The canvas can change its own, and an old file still
+// comes out the same.
+const BOX_SIZE = { width: 320, height: 300 };
+const overlaps = (a: XYPosition, b: XYPosition) =>
+  Math.abs(a.x - b.x) < BOX_SIZE.width && Math.abs(a.y - b.y) < BOX_SIZE.height;
+const wireOf = (source: string, target: string, kind: WireKind): Wire => ({
+  id: `${source}-${target}-${kind}`,
+  source,
+  target,
+  kind,
+});
 
 type Stored = { id: string; type: string; position?: XYPosition; data?: Record<string, unknown> };
 export type Version1 = { nodes: Stored[]; edges: { source: string; target: string }[] };
@@ -74,6 +85,16 @@ export function fromVersion1({ nodes, edges }: Version1): { boxes: PlacedBox[]; 
   return { boxes: boxes as PlacedBox[], wires };
 }
 
+// Version 2 had a summary box, which read what was wired to it. A withdrawal now shows what it draws on by itself, so
+// the box and its wires go. It moved no money, so no result changes and nothing else in the file is touched.
+export function fromVersion2({ boxes, wires }: Version2): Version2 {
+  const gone = new Set(boxes.filter((box) => (box.type as string) === 'summary').map((box) => box.id));
+  return {
+    boxes: boxes.filter((box) => !gone.has(box.id)),
+    wires: wires.filter((wire) => !gone.has(wire.source) && !gone.has(wire.target)),
+  };
+}
+
 // Until version 4 the Norwegian default name was Folketrygden, which is the whole scheme and not the pension the box works
 // out. Only that exact name on that kind of box changes, since anything else is a name someone has written. It moves no
 // money, so no result changes. The words are written out, since this must stay as it is when the texts in the app change.
@@ -127,15 +148,5 @@ export function fromVersion6({ boxes, wires }: Version2): Version2 {
   return {
     boxes: boxes.map((box) => (box.type === 'housing' ? { ...box, data: { ...box.data, kind: 'primary' } } : box)),
     wires,
-  };
-}
-
-// Version 2 had a summary box, which read what was wired to it. A withdrawal now shows what it draws on by itself, so
-// the box and its wires go. It moved no money, so no result changes and nothing else in the file is touched.
-export function fromVersion2({ boxes, wires }: Version2): Version2 {
-  const gone = new Set(boxes.filter((box) => (box.type as string) === 'summary').map((box) => box.id));
-  return {
-    boxes: boxes.filter((box) => !gone.has(box.id)),
-    wires: wires.filter((wire) => !gone.has(wire.source) && !gone.has(wire.target)),
   };
 }

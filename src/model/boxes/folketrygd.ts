@@ -1,10 +1,10 @@
 import { OUTSIDE } from '../../engine/engine';
 import { earnFolketrygd, estimatedDivisor, G_REGULATION_DATE, payFolketrygd, regulateWithG } from '../../engine/norway';
 import { today, validDate } from '../dates';
-import type { BoxSpec, CompileContext, DiagnosticCode } from '../spec';
+import type { BoxSpec, Compiling } from '../spec';
 import { MANY } from '../spec';
 import type { FolketrygdBox } from '../types';
-import { addTaxedPension, salaryFrom } from './pay';
+import { addTaxedPension, pensionChecks, salaryFrom } from './pay';
 
 export type FolketrygdData = {
   name: string;
@@ -20,7 +20,7 @@ export const divisorOf = ({ data }: FolketrygdBox, age: number) =>
   data.divisor !== null && data.divisor > 0 ? data.divisor : estimatedDivisor(age);
 
 // The balance becomes a pension at the payout age, or when it starts if that age has already passed.
-function closeDayOf(pension: FolketrygdBox, context: CompileContext): number | undefined {
+function closeDayOf(pension: FolketrygdBox, context: Compiling): number | undefined {
   const { payoutAge, startDate } = pension.data;
   const payoutDay = payoutAge === null ? null : context.dayOfAge(payoutAge);
   if (payoutDay === null) return undefined;
@@ -33,7 +33,8 @@ export const folketrygdSpec: BoxSpec<FolketrygdBox> = {
   takes: { basis: { max: MANY, from: ['income'] } },
   gives: { money: 1 },
   holds: true,
-  usesG: () => true,
+  readsG: true,
+  startsOn: ({ data }) => validDate(data.startDate),
   declare(pension, context) {
     const { name, startAmount, startDate } = pension.data;
     context.addStock(pension, {
@@ -84,10 +85,5 @@ export const folketrygdSpec: BoxSpec<FolketrygdBox> = {
       ),
     );
   },
-  check(pension, query) {
-    const codes: DiagnosticCode[] = [];
-    if (pension.data.payoutAge !== null && query.assumptions.birthYear === null) codes.push('needsBirthYear');
-    if (pension.data.payoutAge === null && query.outOf(pension, 'money').length > 0) codes.push('needsPayoutAge');
-    return codes;
-  },
+  check: pensionChecks,
 };

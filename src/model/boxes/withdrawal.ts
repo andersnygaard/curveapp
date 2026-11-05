@@ -1,10 +1,11 @@
 import { OUTSIDE } from '../../engine/engine';
 import { keptOf } from '../../engine/norway';
 import { drawnAt, payoutOf, settleGate, type Need } from '../../engine/rules';
-import type { BoxSpec, CompileContext, DiagnosticCode } from '../spec';
+import type { BoxSpec, BuildContext, DiagnosticCode } from '../spec';
 import { MANY } from '../spec';
 import { drawRank } from '../query';
 import type { AccountBox, Box, FolketrygdBox, IncomeBox, OtpBox, WithdrawalBox } from '../types';
+import { shareOf } from '../values';
 import { taxOnGainOf } from './account';
 import { incomeLabel } from './pay';
 
@@ -21,7 +22,7 @@ export type WithdrawalData = {
 function needOf({ data }: WithdrawalBox): Need {
   return data.mode === 'amount'
     ? { perMonth: Math.max(0, data.perMonth) }
-    : { yearlyShareOfAccounts: Math.max(0, data.percent) / 100 };
+    : { yearlyShareOfAccounts: shareOf(data.percent) };
 }
 
 type Source = AccountBox | OtpBox | FolketrygdBox | IncomeBox;
@@ -35,12 +36,12 @@ const isSource = (box: Box): box is Source => (STACKING as string[]).includes(bo
 
 // The flow of what a source pays after tax. An account can feed several gates, so its flow is per gate. Income is already
 // after tax, so what it pays is what it moves.
-function paidBy(box: Source, gate: WithdrawalBox, context: CompileContext): string {
+function paidBy(box: Source, gate: WithdrawalBox, context: BuildContext): string {
   if (box.type === 'account') return drawnAt(context.stockOf(gate), context.stockOf(box));
   return box.type === 'income' ? incomeLabel(box, gate) : keptOf(payoutOf(box.id));
 }
 
-function sourcesOf(gate: WithdrawalBox, context: CompileContext) {
+function sourcesOf(gate: WithdrawalBox, context: BuildContext) {
   const sources = context.into(gate, 'money').filter(isSource);
   return STACKING.flatMap((type) => sources.filter((box) => box.type === type)).map((box) => ({
     name: box.data.name,

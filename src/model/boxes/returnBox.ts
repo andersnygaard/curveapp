@@ -1,8 +1,9 @@
 import { earnReturn, marketStep, stepFactor } from '../../engine/rules';
 import { yearsSinceLast } from '../../engine/timeline';
-import type { BoxSpec, CompileContext, DiagnosticCode } from '../spec';
+import type { BoxSpec, Compiling, DiagnosticCode } from '../spec';
 import { MANY } from '../spec';
 import type { ReturnBox } from '../types';
+import { shareOf } from '../values';
 
 export type ReturnInterval = 'daily' | 'tradingDays' | 'monthly' | 'yearly';
 
@@ -14,10 +15,10 @@ export type ReturnData = {
   standardDeviation: number;
 };
 
-export const annualRateOf = ({ data }: ReturnBox) => Math.max(-99, data.annualReturn) / 100;
+export const annualRateOf = ({ data }: ReturnBox) => shareOf(data.annualReturn, -99);
 
 // Income arrives on the first day of a period, while monthly and yearly returns are paid on the last.
-function payDays({ data }: ReturnBox, context: CompileContext): Uint8Array {
+function payDays({ data }: ReturnBox, context: Compiling): Uint8Array {
   const paidOnLastDay = data.returnInterval === 'monthly' || data.returnInterval === 'yearly';
   return context.timeline.fires({ every: data.returnInterval, at: paidOnLastDay ? 'periodEnd' : 'periodStart' });
 }
@@ -27,7 +28,7 @@ export const returnSpec: BoxSpec<ReturnBox> = {
   defaults: (names) => ({ name: names.return, annualReturn: 4, returnInterval: 'tradingDays', standardDeviation: 15 }),
   gives: { influence: MANY },
   declare(market, context) {
-    const volatility = Math.max(0, market.data.standardDeviation) / 100;
+    const volatility = shareOf(market.data.standardDeviation);
     const fires = payDays(market, context);
     context.addFactor({ id: market.id, value: 1, previous: 1 }, volatility > 0);
     context.addRule(stepFactor(market.id, fires, marketStep(volatility, yearsSinceLast(fires))));

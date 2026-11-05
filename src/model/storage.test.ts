@@ -165,6 +165,12 @@ describe('saving and loading', () => {
     expect(() => parseGraph(JSON.stringify({ ...stored, version: 99 }), names)).toThrow();
   });
 
+  it('refuses a version stored as text, which no version of the app has written', () => {
+    const stored = JSON.parse(serializeGraph(defaultGraph(names)));
+    expect(() => parseGraph(JSON.stringify({ ...stored, version: String(VERSION) }), names)).toThrow('Unknown version');
+    expect(() => parseGraph(JSON.stringify({ ...stored, version: '2' }), names)).toThrow('Unknown version');
+  });
+
   it('keeps a box that has lost its place on the canvas', () => {
     const stored = JSON.parse(serializeGraph(defaultGraph(names)));
     delete stored.boxes[0].position;
@@ -463,6 +469,12 @@ describe('files saved by earlier versions', () => {
     const stored = JSON.parse(files['./__saved__/version-2.json']);
     stored.boxes.push({ id: 'x', type: 'future', position: { x: 0, y: 0 }, data: {} });
     expect(() => parseGraph(JSON.stringify(stored), names)).toThrow();
+  });
+
+  it.each([2, 5, 6])('refuses a box without data in a file from version %i, before a later step could fill it in', (version) => {
+    const stored = JSON.parse(files[`./__saved__/version-${version}.json`]);
+    stored.boxes.push({ id: 'x', type: 'housing', position: { x: 0, y: 0 }, data: null });
+    expect(() => parseGraph(JSON.stringify(stored), names)).toThrow('Unknown box type');
   });
 });
 

@@ -1,9 +1,10 @@
 import { payIncome, type Route } from '../../engine/rules';
-import type { BoxSpec, CompileContext, DiagnosticCode } from '../spec';
+import type { BoxSpec, BuildContext, DiagnosticCode } from '../spec';
 import { MANY } from '../spec';
 import type { IncomeBox } from '../types';
 import { budgetShare } from './budget';
-import { amountOf, incomeLabel, incomeSchedule, type IncomeInterval } from './pay';
+import { amountOf, fixedTransfersOf, incomeLabel, incomeSchedule, type IncomeInterval } from './pay';
+import { amountOf as transferAmountOf } from './transfer';
 
 const DEFAULT_PENSION_BASIS = 850_000;
 const DEFAULT_TO_AGE = 67;
@@ -21,13 +22,13 @@ export type IncomeData = {
   toAge: number | null;
 };
 
-function routesFrom(income: IncomeBox, context: CompileContext): Route[] {
+function routesFrom(income: IncomeBox, context: BuildContext): Route[] {
   return context.outOf(income, 'money').flatMap((next): Route[] => {
     const target = next.type === 'transfer' || next.type === 'budget' ? context.outOf(next, 'money')[0] : next;
     if (!target) return [];
     const to = context.stockOf(target);
     const label = incomeLabel(income, target);
-    if (next.type === 'transfer') return [{ to, label, amount: Math.max(0, next.data.amount) }];
+    if (next.type === 'transfer') return [{ to, label, amount: transferAmountOf(next) }];
     if (next.type === 'budget') return [{ to, label, share: budgetShare(next, context) }];
     return [{ to, label }];
   });
@@ -50,12 +51,9 @@ export const incomeSpec: BoxSpec<IncomeBox> = {
   },
   check(income, query) {
     const codes: DiagnosticCode[] = [];
-    const out = query.outOf(income, 'money');
-    const transfers = out.flatMap((next) => (next.type === 'transfer' ? [next] : []));
-    if (transfers.reduce((sum, transfer) => sum + transfer.data.amount, 0) > amountOf(income)) {
-      codes.push('transfersExceedIncome');
-    }
-    if (out.length - transfers.length > 1) codes.push('restGoesOnlyOnce');
+    if (fixedTransfersOf(income, query) > amountOf(income)) codes.push('transfersExceedIncome');
+    const takesTheRest = query.outOf(income, 'money').filter((next) => next.type !== 'transfer');
+    if (takesTheRest.length > 1) codes.push('restGoesOnlyOnce');
     const { fromAge, toAge } = income.data;
     if ((fromAge !== null || toAge !== null) && query.assumptions.birthYear === null) codes.push('needsBirthYear');
     if (fromAge !== null && toAge !== null && fromAge >= toAge) codes.push('incomeNeverRuns');

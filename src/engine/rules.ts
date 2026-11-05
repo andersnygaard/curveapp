@@ -1,4 +1,5 @@
-// General rules. Each is one thing that can happen in a day.
+// General rules. Each is one thing that can happen in a day. Where one needs Norwegian law, as settleGate does for the
+// tax on gain and on pension, it takes it from norway.ts.
 import { OUTSIDE, ROUNDING, type Rule, type World } from './engine';
 import { beforeDrawing, drawShare, PENSION_TAX_RATE, shareLeaving, type TaxedAccount } from './norway';
 import { DAYS_PER_YEAR } from './timeline';

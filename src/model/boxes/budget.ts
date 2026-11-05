@@ -1,7 +1,7 @@
-import type { BoxSpec, CompileContext, DiagnosticCode, GraphQuery } from '../spec';
+import type { BoxSpec, Compiling, DiagnosticCode, GraphQuery } from '../spec';
 import { MANY } from '../spec';
 import type { BudgetBox, IncomeBox } from '../types';
-import { incomeRuns, paymentsPerYear, restAfterTransfers } from './pay';
+import { incomeRuns, restPerMonth } from './pay';
 
 export type BudgetLine = {
   id: string;
@@ -23,18 +23,15 @@ const incomesInto = (budget: BudgetBox, query: GraphQuery) =>
 
 // What the incomes wired in leave per month, after their fixed transfers.
 export function incomePerMonth(budget: BudgetBox, query: GraphQuery): number {
-  return incomesInto(budget, query).reduce(
-    (sum, income) => sum + (restAfterTransfers(income, query) * paymentsPerYear(income)) / 12,
-    0,
-  );
+  return incomesInto(budget, query).reduce((sum, income) => sum + restPerMonth(income, query), 0);
 }
 
 // The part of each payment that continues to savings. It is worked out over the year, so a quarterly income or a
 // bonus saves as much as the same money paid monthly. While one income is not running, the others carry the budget alone.
-export function budgetShare(budget: BudgetBox, context: CompileContext): (day: number) => number {
+export function budgetShare(budget: BudgetBox, context: Compiling): (day: number) => number {
   const spend = spendPerMonth(budget);
   const incomes = incomesInto(budget, context).map((income) => ({
-    perMonth: (restAfterTransfers(income, context) * paymentsPerYear(income)) / 12,
+    perMonth: restPerMonth(income, context),
     runs: incomeRuns(income, context),
   }));
   return (day) => {

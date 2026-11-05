@@ -35,6 +35,8 @@ export interface Stock {
   hidden?: boolean;
   // A rule draws from it and can ask for more than there is.
   mayFallShort?: boolean;
+  // Set for a stock taxed on its gain, even at a rate of 0, and only such a stock gets an after-tax figure and series for
+  // its deposits and shielding. Left out, there is no tax and none of them.
   taxOnGain?: number;
 }
 
