@@ -359,6 +359,7 @@ export const AnAskShowsDepositsAndShielding: Story = {
     const canvas = within(canvasElement);
     await expect(canvas.getByText(/The dashed line is what is left of what you put in/)).toBeVisible();
     await expect(canvas.getByText(/The dotted line is the unused shielding deduction/)).toBeVisible();
+    await expect(canvasElement.querySelectorAll('.chart-legend line')).toHaveLength(2);
   },
 };
 

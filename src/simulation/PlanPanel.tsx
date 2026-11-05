@@ -40,7 +40,10 @@ function DateSection({ date }: { date: PlanDate }) {
       </h3>
       <ul className="plan-lines">
         {date.lines.map((line, index) => (
-          <li key={index} className={(line.flow === 'unmet' || line.flow === 'wealthTaxShort') && line.change !== 'stops' ? 'plan-short' : undefined}>
+          <li
+            key={index}
+            className={(line.flow === 'unmet' || line.flow === 'wealthTaxShort') && line.change !== 'stops' ? 'callout callout-compact plan-short' : undefined}
+          >
             {lineText(t, line)}
           </li>
         ))}
@@ -66,7 +69,7 @@ export function PlanView({ plan, failed, onClose }: { plan: Plan | null; failed:
       <div className="plan-heading">
         <h2 className="plan-title">{t.plan}</h2>
         {onClose && (
-          <button type="button" className="plan-close" aria-label={t.closePlan} onClick={onClose}>
+          <button type="button" className="icon-button plan-close" aria-label={t.closePlan} onClick={onClose}>
             ×
           </button>
         )}

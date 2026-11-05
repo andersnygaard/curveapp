@@ -53,6 +53,6 @@ export function welcomeSteps(
     { ...t.tour.canvas, target: '.box-me', before: onTab('input') },
     { ...t.tour.plan, target: '.plan', before: onTab('input', true) },
     { ...t.tour.files, target: '.file-buttons', before: onTab('input') },
-    { ...t.tour.simulation, target: '.horizons', before: onTab('simulation') },
+    { ...t.tour.simulation, target: '.period-scale', before: onTab('simulation') },
   ];
 }

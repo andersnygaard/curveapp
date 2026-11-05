@@ -3,7 +3,7 @@ import { useState, type ReactNode } from 'react';
 
 export function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <label className="box-field">
+    <label className="field">
       <span>{label}</span>
       {children}
     </label>

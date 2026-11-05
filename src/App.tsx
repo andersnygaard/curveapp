@@ -62,7 +62,7 @@ export default function App() {
         />
         <LanguagePicker language={language} onChange={changeLanguage} />
         <ThemeLever theme={theme} onChange={chooseTheme} />
-        <button type="button" className="tour-open" aria-label={t.tourOpen} title={t.tourOpen} onClick={tour.start}>
+        <button type="button" className="icon-button icon-button-round tour-open" aria-label={t.tourOpen} title={t.tourOpen} onClick={tour.start}>
           ?
         </button>
       </Header>
@@ -74,15 +74,15 @@ export default function App() {
           active={activeTab}
           onChange={setActiveTab}
         />
-        <button type="button" className="input-add" aria-pressed={planShown} onClick={() => choosePlanOpen(!planShown)}>
+        <button type="button" className="button plan-toggle" aria-pressed={planShown} onClick={() => choosePlanOpen(!planShown)}>
           {t.plan}
         </button>
       </div>
 
       {setup.unreadableFile && (
-        <p className="file-error" role="alert">
+        <p className="callout file-error" role="alert">
           {t.fileUnreadable}
-          <button type="button" aria-label={t.close} onClick={setup.dismissUnreadable}>
+          <button type="button" className="icon-button icon-button-small" aria-label={t.close} onClick={setup.dismissUnreadable}>
             ×
           </button>
         </p>

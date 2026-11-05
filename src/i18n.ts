@@ -157,7 +157,7 @@ const en = {
   deleteBox: (name: string) => `Delete ${name}`,
   deleteConnector: 'Delete connector',
   inputHelp:
-    'Drag from a dot to a dot of the same shape. Money flows left to right, return comes in from above, and salary gives occupational and national pension their basis.',
+    'Drag from a dot to a dot of the same shape. Money flows left to right, return comes in from above, and salary gives occupational and national pension their basis. The line on top of a box says what it is: green moves money, a strong line holds it, a double line is a value you cannot spend, and grey sets a rule.',
   wireKinds: {
     money: 'Money',
     influence: 'Influence',
@@ -455,7 +455,7 @@ const no: Translations = {
   deleteBox: (name: string) => `Slett ${name}`,
   deleteConnector: 'Slett connector',
   inputHelp:
-    'Dra fra en prikk til en prikk med samme form. Penger går fra venstre mot høyre, avkastning kommer ovenfra, og lønn gir OTP og alderspensjonen grunnlaget deres.',
+    'Dra fra en prikk til en prikk med samme form. Penger går fra venstre mot høyre, avkastning kommer ovenfra, og lønn gir OTP og alderspensjonen grunnlaget deres. Streken øverst på en boks sier hva den er: grønn flytter penger, en kraftig strek holder dem, en dobbel strek er en verdi du ikke kan bruke av, og grå setter en regel.',
   wireKinds: {
     money: 'Penger',
     influence: 'Påvirkning',

@@ -4,8 +4,8 @@ import { followCanvas, tokensOf, type PlayedPasses, type RegisterDraw } from './
 import { fillBand, MARGIN, roundedStep, TICK_ROOM, timeTicks, traceLine } from './chartAxis';
 import { compactFormat } from './formats';
 
-const DEPOSITS_DASH = [5, 4];
-const SHIELD_DASH = [1, 4];
+const DASHES = { deposits: [5, 4], shield: [1, 4] };
+// The size of --text-xs in styles.css, written out since a canvas takes no rem.
 const FONT = '12px "Hanken Grotesk Variable", system-ui, sans-serif';
 // The inner band lies on top of the outer one, so it is stronger without being another colour.
 const BAND_ALPHA = 0.22;
@@ -18,6 +18,15 @@ interface Props {
   ageLabel: (age: number) => string;
   description: string;
   registerDraw: RegisterDraw;
+}
+
+// A piece of one of the thin lines, for a legend. The dashes are the chart's own, and styles.css gives it the same colour.
+export function LineSample({ line }: { line: keyof typeof DASHES }) {
+  return (
+    <svg viewBox="0 0 32 8" aria-hidden="true">
+      <line className={`chart-sample chart-sample-${line}`} x1="0" x2="32" y1="4" y2="4" strokeDasharray={DASHES[line].join(' ')} />
+    </svg>
+  );
 }
 
 export default function AccountChart({ player, index, locale, birthYear, ageLabel, description, registerDraw }: Props) {
@@ -88,12 +97,12 @@ export default function AccountChart({ player, index, locale, birthYear, ageLabe
       context.lineWidth = 1.5;
       if (deposits) {
         context.strokeStyle = color('--muted');
-        context.setLineDash(DEPOSITS_DASH);
+        context.setLineDash(DASHES.deposits);
         trace(deposits);
         if (shield) {
           context.strokeStyle = color('--series-6');
           context.lineCap = 'round';
-          context.setLineDash(SHIELD_DASH);
+          context.setLineDash(DASHES.shield);
           trace(shield);
           context.lineCap = 'butt';
         }

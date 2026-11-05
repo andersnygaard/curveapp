@@ -31,7 +31,12 @@ describe.each([
   ['Snø', light],
   ['Polarnatt', dark],
 ])('the colours of %s', (_, tokens) => {
-  const colour = (name: string) => tokens.get(name)!;
+  // A token may stand for another, such as the chosen edge for the curve.
+  const colour = (name: string): string => {
+    const value = tokens.get(name)!;
+    const other = value.match(/^var\((--[a-z0-9-]+)\)$/);
+    return other ? colour(other[1]) : value;
+  };
 
   it.each([
     ['--ink', '--paper'],
@@ -40,13 +45,21 @@ describe.each([
     ['--muted', '--paper'],
     ['--muted', '--card'],
     ['--warning', '--paper'],
-    ['--scale-chosen-ink', '--scale-chosen'],
+    ['--chosen-ink', '--chosen'],
   ])('make %s readable on %s', (text, background) => {
     expect(contrast(colour(text), colour(background))).toBeGreaterThanOrEqual(4.5);
   });
 
-  it.each(['--curve', '--scale-line'])('make %s visible on the paper', (name) => {
+  it.each(['--curve', '--line-strong'])('make %s visible on the paper', (name) => {
     expect(contrast(colour(name), colour('--paper'))).toBeGreaterThanOrEqual(name === '--curve' ? 3 : 1.8);
+  });
+
+  it('frame a field so it can be found on a card', () => {
+    expect(contrast(colour('--field-line'), colour('--card'))).toBeGreaterThanOrEqual(3);
+  });
+
+  it('mark what is chosen with an edge that shows on it', () => {
+    expect(contrast(colour('--chosen-edge'), colour('--chosen'))).toBeGreaterThanOrEqual(3);
   });
 
   it('have eight different colours for the boxes', () => {

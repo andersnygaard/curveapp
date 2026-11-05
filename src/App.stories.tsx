@@ -321,7 +321,7 @@ export const TheTourWelcomesSomeoneNew: Story = {
     await expect(canvas.getByRole('tab', { name: 'Simulation' })).toHaveAttribute('aria-selected', 'true');
     // The last step lights up what only shows once the first pass has arrived, and a step without its target is skipped.
     // On a busy machine the first pass takes longer than the tour waits, so this is about the tour and not about that.
-    await waitFor(() => expect(canvasElement.querySelector('.horizons')).not.toBeNull(), { timeout: 10_000 });
+    await waitFor(() => expect(canvasElement.querySelector('.period-scale')).not.toBeNull(), { timeout: 10_000 });
 
     await next();
     await tourTitleIs(canvasElement, 'Build your setup');
@@ -342,7 +342,7 @@ export const TheTourWelcomesSomeoneNew: Story = {
 
     await next();
     await tourTitleIs(canvasElement, 'See the result');
-    await litUp('.horizons');
+    await litUp('.period-scale');
     await expect(canvas.getByRole('tab', { name: 'Simulation' })).toHaveAttribute('aria-selected', 'true');
 
     await userEvent.click(canvas.getByRole('button', { name: 'Done' }));
@@ -457,16 +457,25 @@ export const SayingNoKeepsTheSetup: Story = {
   },
 };
 
-// With the longest words in the header, so a help button alone on a row of its own would show here.
+// In both languages, since each has the longer words somewhere else, so a help button alone on a row of its own would
+// show here.
 export const TheHeaderDoesNotSpreadOutOnASmallScreen: Story = {
   beforeEach: () => localStorage.setItem(LANGUAGE, 'no'),
   play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
     const middleOf = (selector: string) => {
       const { top, height } = canvasElement.querySelector(selector)!.getBoundingClientRect();
       return top + height / 2;
     };
-    await expect(Math.abs(middleOf('.tour-open') - middleOf('.lever'))).toBeLessThan(4);
-    await expect(Math.abs(middleOf('.flags') - middleOf('.lever'))).toBeLessThan(4);
+    const onOneRow = async () => {
+      await expect(Math.abs(middleOf('.tour-open') - middleOf('.lever'))).toBeLessThan(4);
+      await expect(Math.abs(middleOf('.flags') - middleOf('.lever'))).toBeLessThan(4);
+    };
+    await expect(canvas.getByText('Lys')).toBeVisible();
+    await onOneRow();
+    await userEvent.click(canvas.getByRole('button', { name: 'English' }));
+    await waitFor(() => expect(canvas.getByText('Light')).toBeVisible());
+    await onOneRow();
   },
 };
 

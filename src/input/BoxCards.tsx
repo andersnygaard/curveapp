@@ -72,7 +72,7 @@ function BoxCard({ id, type, name, children }: { id: string; type: BoxType; name
         {deletable && (
           <button
             type="button"
-            className="box-delete nodrag"
+            className="icon-button icon-button-small nodrag"
             aria-label={t.deleteBox(name ?? t.boxTypes[type])}
             onClick={() => deleteElements({ nodes: [{ id }] })}
           >
@@ -84,7 +84,7 @@ function BoxCard({ id, type, name, children }: { id: string; type: BoxType; name
       {diagnostics
         .filter((diagnostic) => diagnostic.boxId === id)
         .map(({ code }) => (
-          <p key={code} className="box-warning">
+          <p key={code} className="callout callout-compact">
             {t.diagnostics[code]}
           </p>
         ))}
@@ -146,7 +146,7 @@ function BudgetLineRow({ line, onChange, onDelete }: { line: BudgetLine; onChang
         value={line.amount || ''}
         onChange={(event) => onChange({ amount: Number(event.target.value) || 0 })}
       />
-      <button type="button" className="box-delete nodrag" aria-label={t.deleteBudgetLine(line.name)} onClick={onDelete}>
+      <button type="button" className="icon-button icon-button-small nodrag" aria-label={t.deleteBudgetLine(line.name)} onClick={onDelete}>
         ×
       </button>
     </div>
@@ -180,7 +180,7 @@ function BudgetCard({ id, data, type }: CardProps<'budget'>) {
           onDelete={() => update({ lines: data.lines.filter((other) => other.id !== line.id) })}
         />
       ))}
-      <button type="button" className="input-add budget-add nodrag" onClick={addLine}>
+      <button type="button" className="button button-small budget-add nodrag" onClick={addLine}>
         {t.addBudgetLine}
       </button>
       <Field label={t.budgetSum}>

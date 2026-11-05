@@ -12,7 +12,7 @@ function WireEdge({ id, selected, markerEnd, ...geometry }: EdgeProps) {
         <EdgeLabelRenderer>
           <button
             type="button"
-            className="edge-delete nodrag nopan"
+            className="icon-button icon-button-small icon-button-round edge-delete nodrag nopan"
             style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)` }}
             aria-label={t.deleteConnector}
             onClick={() => deleteElements({ edges: [{ id }] })}

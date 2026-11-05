@@ -67,10 +67,10 @@ function Canvas({ graph, setGraph, input, recovered, planShown }: Props) {
 
   return (
     <div className="input">
-      {recovered && <p className="input-recovered">{t.storageRecovered}</p>}
+      {recovered && <p className="callout input-recovered">{t.storageRecovered}</p>}
       <div className="input-toolbar">
         {ADDABLE_TYPES.filter((type) => !catalog[type].onlyOne || !graph.boxes.some((box) => box.type === type)).map((type) => (
-          <button key={type} type="button" className="input-add" onClick={() => add(type)}>
+          <button key={type} type="button" className="button" onClick={() => add(type)}>
             {t.addBox[type]}
           </button>
         ))}

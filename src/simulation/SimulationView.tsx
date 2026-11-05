@@ -1,4 +1,4 @@
-import AccountChart from '../components/AccountChart';
+import AccountChart, { LineSample } from '../components/AccountChart';
 import Aurora from '../components/Aurora';
 import PeriodScale, { type PeriodOption } from '../components/PeriodScale';
 import WithdrawalsChart from '../components/WithdrawalsChart';
@@ -89,18 +89,40 @@ function AccountSection({ stock, index, player, birthYear, say, registerDraw }: 
   const t = useTranslations();
   const money = moneyFormat(t.locale, stock.currency);
   const headline = say.headline(stock);
+  const notes = [
+    stock.calculated ? t.calculatedBalance : null,
+    stock.payoutPerYear !== null ? t.payoutPerYear(money.format(stock.payoutPerYear)) : null,
+    stock.heldShare !== null ? say.held(stock.heldShare) : null,
+    stock.afterTax !== null ? t.afterTaxIfWithdrawn(money.format(stock.afterTax)) : null,
+  ].filter((note) => note !== null);
+  // The thin lines in the chart that need a word, each with a piece of the line itself.
+  const legend = { deposits: t.depositsLegend, shield: t.shieldLegend };
+  const lines = (['deposits', 'shield'] as const).filter((line) => stock[line]);
   return (
     <section className="chart">
       <div className="chart-heading">
         <h2 className="chart-name">{stock.name}</h2>
         <span className="chart-headline">{headline}</span>
       </div>
-      {stock.calculated && <p className="chart-note">{t.calculatedBalance}</p>}
-      {stock.payoutPerYear !== null && <p className="chart-note">{t.payoutPerYear(money.format(stock.payoutPerYear))}</p>}
-      {stock.heldShare !== null && <p className="chart-note">{say.held(stock.heldShare)}</p>}
-      {stock.afterTax !== null && <p className="chart-note">{t.afterTaxIfWithdrawn(money.format(stock.afterTax))}</p>}
-      {stock.deposits && <p className="chart-note">{t.depositsLegend}</p>}
-      {stock.shield && <p className="chart-note">{t.shieldLegend}</p>}
+      {(notes.length > 0 || lines.length > 0) && (
+        <div className="chart-notes">
+          {notes.map((note) => (
+            <p key={note} className="chart-note">
+              {note}
+            </p>
+          ))}
+          {lines.length > 0 && (
+            <ul className="chart-legend">
+              {lines.map((line) => (
+                <li key={line}>
+                  <LineSample line={line} />
+                  {legend[line]}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
       <AccountChart
         player={player}
         index={index}
@@ -178,7 +200,7 @@ export default function SimulationView({
             <PeriodScale label={t.simulationPeriod} options={periods} />
             <div className="sim-status">
               <span>{t.passNumber(player.completed + 1)}</span>
-              <button type="button" className="sim-pause" onClick={onTogglePause}>
+              <button type="button" className="button" onClick={onTogglePause}>
                 {paused ? t.resume : t.pause}
               </button>
             </div>
@@ -193,7 +215,7 @@ export default function SimulationView({
         </p>
 
         {otherGates.map((gate) => (
-          <p key={gate.id} className="sim-gate">
+          <p key={gate.id} className="callout callout-note sim-gate">
             {say.gate(gate)}
           </p>
         ))}

@@ -151,17 +151,17 @@ export default function Tour({ steps, onClose }: Props) {
         </div>
         <div className="tour-actions">
           {!last && (
-            <button type="button" className="tour-skip" onClick={onClose}>
+            <button type="button" className="button button-quiet" onClick={onClose}>
               {t.tourSkip}
             </button>
           )}
           <div className="tour-moves">
             {index > 0 && (
-              <button type="button" className="input-add" onClick={() => go(index - 1, -1)}>
+              <button type="button" className="button" onClick={() => go(index - 1, -1)}>
                 {t.tourBack}
               </button>
             )}
-            <button ref={next} type="button" className="input-add tour-next" onClick={() => go(index + 1, 1)}>
+            <button ref={next} type="button" className="button button-primary" onClick={() => go(index + 1, 1)}>
               {last ? t.tourDone : t.tourNext}
             </button>
           </div>
